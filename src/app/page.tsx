@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   ArrowRight,
   FileText,
@@ -61,11 +61,11 @@ export default function LandingPage() {
             <span className="text-xl font-bold">ConciliaOS</span>
           </div>
           <div className="flex items-center gap-4">
-            <Link href="/login">
-              <Button variant="ghost">Iniciar sesión</Button>
+            <Link href="/login" className={buttonVariants({ variant: "ghost" })}>
+              Iniciar sesión
             </Link>
-            <Link href="/register">
-              <Button>Crear cuenta</Button>
+            <Link href="/register" className={buttonVariants()}>
+              Crear cuenta
             </Link>
           </div>
         </div>
@@ -84,16 +84,12 @@ export default function LandingPage() {
           inteligencia artificial.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
-          <Link href="/register">
-            <Button size="lg" className="text-lg px-8">
+          <Link href="/register" className={buttonVariants({ size: "lg", className: "text-lg px-8" })}>
               Comenzar gratis
               <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
           </Link>
-          <Link href="/login">
-            <Button size="lg" variant="outline" className="text-lg px-8">
+          <Link href="/login" className={buttonVariants({ size: "lg", variant: "outline", className: "text-lg px-8" })}>
               Ver demo
-            </Button>
           </Link>
         </div>
       </section>
