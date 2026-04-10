@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { REGIMENES_FISCALES } from "@/lib/types/conciliaos.types";
 import { validarRFC } from "@/lib/utils/rfc";
+import { createClient } from "@/lib/supabase/client";
 
 // Esquema de validación
 const empresaSchema = z.object({
@@ -161,17 +162,46 @@ export default function NuevaEmpresaPage() {
   async function onSubmit(data: EmpresaForm) {
     setLoading(true);
     try {
-      // TODO: Server action para crear empresa en Supabase
-      console.log("Datos de empresa:", data);
-      console.log("Archivo CIF:", cifFile);
+      const supabase = createClient();
 
-      // Simular guardado
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Get current user for tenant_id
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        router.push("/login");
+        return;
+      }
 
-      // TODO: Redirigir al dashboard de la empresa creada
-      router.push("/empresas");
+      // Find regimen description
+      const regimen = REGIMENES_FISCALES.find(
+        (r) => r.codigo === data.regimen_codigo
+      );
+
+      const { data: empresa, error } = await supabase
+        .from("empresas")
+        .insert({
+          tenant_id: userData.user.id,
+          rfc: data.rfc.toUpperCase(),
+          razon_social: data.razon_social,
+          nombre_comercial: data.nombre_comercial || null,
+          regimen_fiscal: regimen?.descripcion || data.regimen_codigo,
+          regimen_codigo: data.regimen_codigo,
+          codigo_postal: data.codigo_postal,
+          objeto_social: data.objeto_social || null,
+        } as never)
+        .select("id")
+        .single();
+
+      if (error) {
+        console.error("Error Supabase:", error);
+        alert(`Error al crear empresa: ${error.message}`);
+        return;
+      }
+
+      const empresaId = (empresa as unknown as { id: string }).id;
+      router.push(`/empresas/${empresaId}`);
     } catch (error) {
       console.error("Error al crear empresa:", error);
+      alert("Error inesperado al crear la empresa.");
     } finally {
       setLoading(false);
     }

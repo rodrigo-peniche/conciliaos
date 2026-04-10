@@ -1,14 +1,52 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Plus, ExternalLink } from "lucide-react";
+import { Building2, Plus, ExternalLink, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEmpresaStore } from "@/hooks/use-empresa";
+import { createClient } from "@/lib/supabase/client";
+import type { Empresa } from "@/lib/types/conciliaos.types";
 
 export default function EmpresasPage() {
-  const { empresas } = useEmpresaStore();
+  const { empresas, setEmpresas } = useEmpresaStore();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadEmpresas() {
+      try {
+        const supabase = createClient();
+        const { data: userData } = await supabase.auth.getUser();
+        if (!userData.user) return;
+
+        const { data, error } = await supabase
+          .from("empresas")
+          .select("*")
+          .eq("tenant_id", userData.user.id)
+          .order("created_at", { ascending: false });
+
+        if (!error && data) {
+          setEmpresas(data as unknown as Empresa[]);
+        }
+      } catch (e) {
+        console.error("Error cargando empresas:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadEmpresas();
+  }, [setEmpresas]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
