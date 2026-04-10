@@ -36,6 +36,7 @@ export async function updateSession(request: NextRequest) {
   // Proteger rutas del dashboard
   if (
     !user &&
+    request.nextUrl.pathname !== "/" &&
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/register") &&
     !request.nextUrl.pathname.startsWith("/api") &&
