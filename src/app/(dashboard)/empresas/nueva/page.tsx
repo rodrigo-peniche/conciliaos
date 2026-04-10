@@ -25,6 +25,11 @@ import {
   Upload,
   ShieldCheck,
   AlertCircle,
+  Sparkles,
+  X,
+  FileText,
+  Check,
+  Pencil,
 } from "lucide-react";
 import { REGIMENES_FISCALES } from "@/lib/types/conciliaos.types";
 import { validarRFC } from "@/lib/utils/rfc";
@@ -61,6 +66,11 @@ export default function NuevaEmpresaPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [cifFile, setCifFile] = useState<File | null>(null);
+  const [actasFiles, setActasFiles] = useState<File[]>([]);
+  const [extracting, setExtracting] = useState(false);
+  const [extractedObjeto, setExtractedObjeto] = useState<string | null>(null);
+  const [objetoApproved, setObjetoApproved] = useState(false);
+  const [editingObjeto, setEditingObjeto] = useState(false);
   const router = useRouter();
 
   const {
@@ -95,6 +105,55 @@ export default function NuevaEmpresaPage() {
 
   function prevStep() {
     setCurrentStep((prev) => Math.max(prev - 1, 1));
+  }
+
+  function handleActasUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (files) {
+      setActasFiles((prev) => [...prev, ...Array.from(files)]);
+      setExtractedObjeto(null);
+      setObjetoApproved(false);
+    }
+  }
+
+  function removeActaFile(index: number) {
+    setActasFiles((prev) => prev.filter((_, i) => i !== index));
+    setExtractedObjeto(null);
+    setObjetoApproved(false);
+  }
+
+  async function extractObjetoSocial() {
+    if (actasFiles.length === 0) return;
+    setExtracting(true);
+    setExtractedObjeto(null);
+    setObjetoApproved(false);
+
+    try {
+      const formData = new FormData();
+      actasFiles.forEach((file) => formData.append("files", file));
+
+      const res = await fetch("/api/extracto-objeto-social", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.error) {
+        setExtractedObjeto(`Error: ${data.error}`);
+      } else {
+        setExtractedObjeto(data.objetoSocial);
+        setValue("objeto_social", data.objetoSocial);
+      }
+    } catch {
+      setExtractedObjeto("Error al conectar con el servidor.");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function approveObjeto() {
+    setObjetoApproved(true);
+    setEditingObjeto(false);
   }
 
   async function onSubmit(data: EmpresaForm) {
@@ -284,76 +343,244 @@ export default function NuevaEmpresaPage() {
           </Card>
         )}
 
-        {/* PASO 2: CIF */}
+        {/* PASO 2: CIF + Actas Constitutivas */}
         {currentStep === 2 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileUp className="h-5 w-5" />
-                Constancia de Situación Fiscal (CIF)
+                Documentos de la Empresa
               </CardTitle>
               <CardDescription>
-                Carga el PDF del CIF para extraer automáticamente actividades y
-                obligaciones.
+                Carga el CIF y las actas constitutivas para extraer el objeto
+                social con IA.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div
-                className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors hover:border-blue-400 cursor-pointer"
-                onClick={() =>
-                  document.getElementById("cif-upload")?.click()
-                }
-              >
-                <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {cifFile
-                    ? cifFile.name
-                    : "Arrastra tu CIF aquí o haz clic para seleccionar"}
-                </p>
-                <p className="text-xs text-muted-foreground">PDF, máx. 5MB</p>
-                <input
-                  id="cif-upload"
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) setCifFile(file);
-                  }}
-                />
-              </div>
-
-              {cifFile && (
-                <div className="rounded-lg bg-green-50 p-4 dark:bg-green-950">
-                  <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span className="text-sm font-medium">
-                      Archivo cargado: {cifFile.name}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-green-600 dark:text-green-400">
-                    El parseo automático del CIF se habilitará con la conexión a
-                    Supabase Storage.
+            <CardContent className="space-y-6">
+              {/* CIF Upload */}
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">
+                  Constancia de Situación Fiscal (CIF)
+                </Label>
+                <div
+                  className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors hover:border-blue-400 cursor-pointer"
+                  onClick={() =>
+                    document.getElementById("cif-upload")?.click()
+                  }
+                >
+                  <Upload className="mb-2 h-6 w-6 text-muted-foreground" />
+                  <p className="text-sm font-medium">
+                    {cifFile ? cifFile.name : "Haz clic para seleccionar"}
                   </p>
+                  <p className="text-xs text-muted-foreground">PDF, máx. 5MB</p>
+                  <input
+                    id="cif-upload"
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setCifFile(file);
+                    }}
+                  />
                 </div>
-              )}
+                {cifFile && (
+                  <div className="rounded-lg bg-green-50 p-3 dark:bg-green-950">
+                    <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="text-sm">
+                        Cargado: {cifFile.name}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <Separator />
 
-              <div className="space-y-2">
-                <Label htmlFor="objeto_social">
-                  Objeto Social / Actividades Económicas
-                </Label>
-                <Textarea
-                  id="objeto_social"
-                  placeholder="Describe las actividades principales de la empresa..."
-                  rows={4}
-                  {...register("objeto_social")}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Este campo se usa para el análisis de deducibilidad con IA.
-                </p>
+              {/* Actas Constitutivas Upload */}
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm font-semibold">
+                    Acta Constitutiva y Modificaciones
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sube el acta constitutiva y todas sus modificaciones. La IA
+                    extraerá el objeto social vigente.
+                  </p>
+                </div>
+
+                <div
+                  className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors hover:border-blue-400 cursor-pointer"
+                  onClick={() =>
+                    document.getElementById("actas-upload")?.click()
+                  }
+                >
+                  <Upload className="mb-2 h-6 w-6 text-muted-foreground" />
+                  <p className="text-sm font-medium">
+                    Seleccionar PDFs de actas
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Puedes seleccionar varios archivos PDF
+                  </p>
+                  <input
+                    id="actas-upload"
+                    type="file"
+                    accept=".pdf"
+                    multiple
+                    className="hidden"
+                    onChange={handleActasUpload}
+                  />
+                </div>
+
+                {/* Lista de archivos subidos */}
+                {actasFiles.length > 0 && (
+                  <div className="space-y-2">
+                    {actasFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between rounded-lg border p-2.5"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="h-4 w-4 text-red-500 shrink-0" />
+                          <span className="text-sm truncate">{file.name}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            ({(file.size / 1024 / 1024).toFixed(1)} MB)
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => removeActaFile(idx)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    {/* Botón extraer con IA */}
+                    <Button
+                      type="button"
+                      onClick={extractObjetoSocial}
+                      disabled={extracting}
+                      className="w-full"
+                    >
+                      {extracting ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-4 w-4" />
+                      )}
+                      {extracting
+                        ? "Extrayendo objeto social..."
+                        : "Extraer Objeto Social con IA"}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Resultado de extracción */}
+                {extractedObjeto && !extractedObjeto.startsWith("Error") && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                            Objeto Social Extraído por IA
+                          </span>
+                        </div>
+                        {objetoApproved && (
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
+                            <Check className="mr-1 h-3 w-3" />
+                            Aprobado
+                          </Badge>
+                        )}
+                      </div>
+
+                      {editingObjeto ? (
+                        <Textarea
+                          value={formValues.objeto_social || ""}
+                          onChange={(e) =>
+                            setValue("objeto_social", e.target.value)
+                          }
+                          rows={8}
+                          className="bg-white dark:bg-gray-900"
+                        />
+                      ) : (
+                        <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                          {formValues.objeto_social}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      {!objetoApproved ? (
+                        <>
+                          <Button
+                            type="button"
+                            onClick={approveObjeto}
+                            className="flex-1"
+                          >
+                            <Check className="mr-2 h-4 w-4" />
+                            Aprobar Objeto Social
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setEditingObjeto(!editingObjeto)}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            {editingObjeto ? "Vista previa" : "Editar"}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setObjetoApproved(false);
+                            setEditingObjeto(true);
+                          }}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Modificar
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Error de extracción */}
+                {extractedObjeto && extractedObjeto.startsWith("Error") && (
+                  <div className="rounded-lg bg-red-50 p-3 dark:bg-red-950">
+                    <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-sm">{extractedObjeto}</span>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Objeto social manual (si no hay actas) */}
+              {actasFiles.length === 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label htmlFor="objeto_social">
+                      Objeto Social / Actividades Económicas (manual)
+                    </Label>
+                    <Textarea
+                      id="objeto_social"
+                      placeholder="Si no tienes acta constitutiva, describe las actividades principales..."
+                      rows={4}
+                      {...register("objeto_social")}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Este campo se usa para el análisis de deducibilidad con IA.
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         )}
