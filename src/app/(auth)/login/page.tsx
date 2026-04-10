@@ -34,7 +34,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/");
+      router.push("/empresas");
       router.refresh();
     } catch {
       setError("Error al iniciar sesión. Intenta de nuevo.");

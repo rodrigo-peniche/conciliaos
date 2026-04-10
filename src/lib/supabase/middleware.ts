@@ -47,14 +47,15 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirigir usuarios autenticados fuera de auth pages
+  // Redirigir usuarios autenticados: auth pages y landing → /empresas
   if (
     user &&
-    (request.nextUrl.pathname === "/login" ||
+    (request.nextUrl.pathname === "/" ||
+      request.nextUrl.pathname === "/login" ||
       request.nextUrl.pathname === "/register")
   ) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/empresas";
     return NextResponse.redirect(url);
   }
 
