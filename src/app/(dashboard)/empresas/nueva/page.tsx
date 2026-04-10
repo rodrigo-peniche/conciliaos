@@ -71,6 +71,8 @@ export default function NuevaEmpresaPage() {
   const [extractedObjeto, setExtractedObjeto] = useState<string | null>(null);
   const [objetoApproved, setObjetoApproved] = useState(false);
   const [editingObjeto, setEditingObjeto] = useState(false);
+  const [cerFile, setCerFile] = useState<File | null>(null);
+  const [keyFile, setKeyFile] = useState<File | null>(null);
   const router = useRouter();
 
   const {
@@ -618,20 +620,80 @@ export default function NuevaEmpresaPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Certificado (.cer)</Label>
-                    <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 cursor-pointer hover:border-blue-400">
-                      <Upload className="mb-1 h-6 w-6 text-muted-foreground" />
-                      <p className="text-xs text-muted-foreground">
-                        Archivo .cer
-                      </p>
+                    <div
+                      className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 cursor-pointer transition-colors ${
+                        cerFile
+                          ? "border-green-400 bg-green-50 dark:bg-green-950"
+                          : "hover:border-blue-400"
+                      }`}
+                      onClick={() =>
+                        document.getElementById("cer-upload")?.click()
+                      }
+                    >
+                      {cerFile ? (
+                        <>
+                          <CheckCircle2 className="mb-1 h-6 w-6 text-green-600" />
+                          <p className="text-xs font-medium text-green-700 dark:text-green-300 truncate max-w-full">
+                            {cerFile.name}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="mb-1 h-6 w-6 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">
+                            Archivo .cer
+                          </p>
+                        </>
+                      )}
+                      <input
+                        id="cer-upload"
+                        type="file"
+                        accept=".cer"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setCerFile(file);
+                        }}
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Llave privada (.key)</Label>
-                    <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 cursor-pointer hover:border-blue-400">
-                      <Upload className="mb-1 h-6 w-6 text-muted-foreground" />
-                      <p className="text-xs text-muted-foreground">
-                        Archivo .key
-                      </p>
+                    <div
+                      className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 cursor-pointer transition-colors ${
+                        keyFile
+                          ? "border-green-400 bg-green-50 dark:bg-green-950"
+                          : "hover:border-blue-400"
+                      }`}
+                      onClick={() =>
+                        document.getElementById("key-upload")?.click()
+                      }
+                    >
+                      {keyFile ? (
+                        <>
+                          <CheckCircle2 className="mb-1 h-6 w-6 text-green-600" />
+                          <p className="text-xs font-medium text-green-700 dark:text-green-300 truncate max-w-full">
+                            {keyFile.name}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="mb-1 h-6 w-6 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">
+                            Archivo .key
+                          </p>
+                        </>
+                      )}
+                      <input
+                        id="key-upload"
+                        type="file"
+                        accept=".key"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setKeyFile(file);
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -732,7 +794,9 @@ export default function NuevaEmpresaPage() {
                   <span className="text-sm text-muted-foreground">
                     Credenciales SAT:
                   </span>
-                  <Badge variant="secondary">Pendiente</Badge>
+                  <Badge variant={cerFile && keyFile ? "default" : "secondary"}>
+                    {cerFile && keyFile ? "e.firma cargada" : "Pendiente"}
+                  </Badge>
                 </div>
               </div>
 
