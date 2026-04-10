@@ -10,6 +10,8 @@ export type CuentaBancaria = Database["public"]["Tables"]["cuentas_bancarias"]["
 export type Conciliacion = Database["public"]["Tables"]["conciliaciones"]["Row"];
 export type Contrato = Database["public"]["Tables"]["contratos"]["Row"];
 export type Tercero = Database["public"]["Tables"]["terceros"]["Row"];
+export type ConciliacionPartida = Database["public"]["Tables"]["conciliacion_partidas"]["Row"];
+export type ConciliacionPartidaInsert = Database["public"]["Tables"]["conciliacion_partidas"]["Insert"];
 export type AuditLog = Database["public"]["Tables"]["audit_logs"]["Row"];
 
 // Tipos de insert

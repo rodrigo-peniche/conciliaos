@@ -108,7 +108,7 @@ export default function NuevaEmpresaPage() {
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // TODO: Redirigir al dashboard de la empresa creada
-      router.push("/dashboard/empresas");
+      router.push("/empresas");
     } catch (error) {
       console.error("Error al crear empresa:", error);
     } finally {

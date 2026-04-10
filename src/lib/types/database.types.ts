@@ -373,6 +373,42 @@ export type Database = {
           updated_at?: string;
         };
       };
+      conciliacion_partidas: {
+        Row: {
+          id: string;
+          conciliacion_id: string;
+          movimiento_id: string | null;
+          cfdi_id: string | null;
+          tipo: "match_exacto" | "match_fuzzy" | "manual" | "sin_cfdi" | "sin_movimiento" | "diferencia";
+          score_matching: number | null;
+          diferencia_monto: number;
+          diferencia_dias: number;
+          estado: "pendiente" | "aceptado" | "rechazado" | "excepcion";
+          nota: string | null;
+          revisado_por: string | null;
+          revisado_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          conciliacion_id: string;
+          movimiento_id?: string | null;
+          cfdi_id?: string | null;
+          tipo: "match_exacto" | "match_fuzzy" | "manual" | "sin_cfdi" | "sin_movimiento" | "diferencia";
+          score_matching?: number | null;
+          diferencia_monto?: number;
+          diferencia_dias?: number;
+          estado?: "pendiente" | "aceptado" | "rechazado" | "excepcion";
+          nota?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          estado?: "pendiente" | "aceptado" | "rechazado" | "excepcion";
+          nota?: string | null;
+          revisado_por?: string | null;
+          revisado_at?: string | null;
+        };
+      };
       contratos: {
         Row: {
           id: string;

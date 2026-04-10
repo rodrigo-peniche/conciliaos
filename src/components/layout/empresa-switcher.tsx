@@ -56,7 +56,7 @@ export function EmpresaSwitcher() {
                   onSelect={() => {
                     setEmpresaActual(empresa);
                     setOpen(false);
-                    router.push(`/dashboard/empresas/${empresa.id}`);
+                    router.push(`/empresas/${empresa.id}`);
                   }}
                 >
                   <Check
@@ -86,7 +86,7 @@ export function EmpresaSwitcher() {
               <CommandItem
                 onSelect={() => {
                   setOpen(false);
-                  router.push("/dashboard/empresas/nueva");
+                  router.push("/empresas/nueva");
                 }}
               >
                 <Plus className="mr-2 h-4 w-4" />

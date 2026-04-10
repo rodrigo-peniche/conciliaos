@@ -23,7 +23,7 @@ export default function DashboardPage() {
             Bienvenido a ConciliaOS. Gestiona tu conciliación fiscal.
           </p>
         </div>
-        <Link href="/dashboard/empresas/nueva">
+        <Link href="/empresas/nueva">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             Nueva Empresa
@@ -97,7 +97,7 @@ export default function DashboardPage() {
         <p className="mb-4 text-sm text-muted-foreground">
           Agrega una empresa para comenzar a descargar CFDIs y conciliar movimientos.
         </p>
-        <Link href="/dashboard/empresas/nueva">
+        <Link href="/empresas/nueva">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             Registrar empresa

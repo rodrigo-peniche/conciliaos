@@ -19,7 +19,7 @@ export default function EmpresasPage() {
             Gestiona las empresas de tu despacho.
           </p>
         </div>
-        <Link href="/dashboard/empresas/nueva">
+        <Link href="/empresas/nueva">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             Nueva Empresa
@@ -34,7 +34,7 @@ export default function EmpresasPage() {
           <p className="mb-4 text-sm text-muted-foreground">
             Registra tu primera empresa para comenzar.
           </p>
-          <Link href="/dashboard/empresas/nueva">
+          <Link href="/empresas/nueva">
             <Button>
               <Plus className="mr-2 h-4 w-4" />
               Registrar empresa
@@ -72,7 +72,7 @@ export default function EmpresasPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <Link href={`/dashboard/empresas/${empresa.id}`}>
+                  <Link href={`/empresas/${empresa.id}`}>
                     <Button variant="outline" className="w-full" size="sm">
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Ver empresa

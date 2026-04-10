@@ -326,7 +326,7 @@ export default function ImportarEstadoCuentaPage() {
             <Button
               onClick={() =>
                 router.push(
-                  `/dashboard/empresas/${params.id}/conciliacion`
+                  `/empresas/${params.id}/conciliacion`
                 )
               }
             >

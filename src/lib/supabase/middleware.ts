@@ -36,7 +36,10 @@ export async function updateSession(request: NextRequest) {
   // Proteger rutas del dashboard
   if (
     !user &&
-    request.nextUrl.pathname.startsWith("/dashboard")
+    !request.nextUrl.pathname.startsWith("/login") &&
+    !request.nextUrl.pathname.startsWith("/register") &&
+    !request.nextUrl.pathname.startsWith("/api") &&
+    !request.nextUrl.pathname.startsWith("/_next")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
@@ -50,7 +53,7 @@ export async function updateSession(request: NextRequest) {
       request.nextUrl.pathname === "/register")
   ) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 

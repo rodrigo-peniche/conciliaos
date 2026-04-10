@@ -21,12 +21,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const NAV_GENERAL = [
   {
     label: "Dashboard",
-    href: "/dashboard",
+    href: "/",
     icon: LayoutDashboard,
   },
   {
     label: "Empresas",
-    href: "/dashboard/empresas",
+    href: "/empresas",
     icon: Building2,
   },
 ];
@@ -74,7 +74,7 @@ export function Sidebar() {
   const { empresaActual } = useEmpresaStore();
 
   const empresaBase = empresaActual
-    ? `/dashboard/empresas/${empresaActual.id}`
+    ? `//empresas/${empresaActual.id}`
     : null;
 
   return (
@@ -150,7 +150,7 @@ export function Sidebar() {
       {/* Footer del sidebar */}
       <div className="border-t p-3">
         <Link
-          href="/dashboard/configuracion"
+          href="/configuracion"
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
             "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
