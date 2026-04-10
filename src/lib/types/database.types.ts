@@ -477,6 +477,43 @@ export type Database = {
         };
         Update: never;
       };
+      sat_sync_jobs: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          tipo: "cfdi_emitidos" | "cfdi_recibidos" | "declaraciones" | "opiniones" | "efos" | null;
+          estado: "pendiente" | "ejecutando" | "completado" | "error" | "cancelado";
+          fecha_inicio_descarga: string | null;
+          fecha_fin_descarga: string | null;
+          total_encontrados: number | null;
+          total_descargados: number | null;
+          total_errores: number | null;
+          error_detalle: string | null;
+          iniciado_por: string | null;
+          started_at: string | null;
+          finished_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          tipo?: "cfdi_emitidos" | "cfdi_recibidos" | "declaraciones" | "opiniones" | "efos" | null;
+          estado?: "pendiente" | "ejecutando" | "completado" | "error" | "cancelado";
+          fecha_inicio_descarga?: string | null;
+          fecha_fin_descarga?: string | null;
+          iniciado_por?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          estado?: "pendiente" | "ejecutando" | "completado" | "error" | "cancelado";
+          total_encontrados?: number | null;
+          total_descargados?: number | null;
+          total_errores?: number | null;
+          error_detalle?: string | null;
+          started_at?: string | null;
+          finished_at?: string | null;
+        };
+      };
     };
     Functions: {
       calcular_score_matching: {
