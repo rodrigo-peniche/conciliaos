@@ -4,8 +4,6 @@ import { useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -34,8 +32,18 @@ export default function ConciliacionPage() {
   const empresaId = params.id as string;
 
   // State
-  const [periodoInicio, setPeriodoInicio] = useState("");
-  const [periodoFin, setPeriodoFin] = useState("");
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth();
+  const [selYear, setSelYear] = useState(currentYear);
+  const [selMonth, setSelMonth] = useState(currentMonth);
+  const YEARS = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3];
+  const MONTHS_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+  // Derivar periodo de año/mes
+  const periodoInicio = `${selYear}-${String(selMonth + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(selYear, selMonth + 1, 0).getDate();
+  const periodoFin = `${selYear}-${String(selMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
   const [cuentaId, setCuentaId] = useState("");
   const [loading, setLoading] = useState(false);
   const [autoMatchLoading, setAutoMatchLoading] = useState(false);
@@ -249,41 +257,57 @@ export default function ConciliacionPage() {
         </div>
       </div>
 
-      {/* Selector de periodo */}
+      {/* Selector de periodo con burbujas */}
       <Card>
-        <CardContent className="pt-4">
-          <div className="flex items-end gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs">Periodo inicio</Label>
-              <Input
-                type="date"
-                value={periodoInicio}
-                onChange={(e) => setPeriodoInicio(e.target.value)}
-                className="w-[160px] h-9"
-              />
+        <CardContent className="pt-4 space-y-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Año</p>
+            <div className="flex flex-wrap gap-2">
+              {YEARS.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => setSelYear(year)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    selYear === year
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 border hover:bg-blue-50 dark:hover:bg-blue-950"
+                  }`}
+                >
+                  {year}
+                </button>
+              ))}
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Periodo fin</Label>
-              <Input
-                type="date"
-                value={periodoFin}
-                onChange={(e) => setPeriodoFin(e.target.value)}
-                className="w-[160px] h-9"
-              />
-            </div>
-            <Button
-              onClick={cargarDatos}
-              disabled={loading || !periodoInicio || !periodoFin}
-              size="sm"
-            >
-              {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <ArrowLeftRight className="mr-2 h-4 w-4" />
-              )}
-              Cargar periodo
-            </Button>
           </div>
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Mes</p>
+            <div className="flex flex-wrap gap-1.5">
+              {MONTHS_LABELS.map((mes, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setSelMonth(idx)}
+                  className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    selMonth === idx
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 border hover:bg-blue-50 dark:hover:bg-blue-950"
+                  }`}
+                >
+                  {mes}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button
+            onClick={cargarDatos}
+            disabled={loading}
+            size="sm"
+          >
+            {loading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowLeftRight className="mr-2 h-4 w-4" />
+            )}
+            Cargar {MONTHS_LABELS[selMonth]} {selYear}
+          </Button>
         </CardContent>
       </Card>
 
