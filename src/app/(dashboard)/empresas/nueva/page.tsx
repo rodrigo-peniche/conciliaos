@@ -246,6 +246,23 @@ export default function NuevaEmpresaPage() {
         return;
       }
 
+      // Ensure tenant exists for this user
+      const { data: existingTenant } = await supabase
+        .from("tenants")
+        .select("id")
+        .eq("id", userData.user.id)
+        .single();
+
+      if (!existingTenant) {
+        const userName = userData.user.user_metadata?.nombre || userData.user.email || "Mi Despacho";
+        const slug = userData.user.id.substring(0, 8);
+        await supabase.from("tenants").insert({
+          id: userData.user.id,
+          nombre: userName,
+          slug: slug,
+        } as never);
+      }
+
       // Find regimen description
       const regimen = REGIMENES_FISCALES.find(
         (r) => r.codigo === data.regimen_codigo

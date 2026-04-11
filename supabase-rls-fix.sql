@@ -3,6 +3,28 @@
 -- Ejecutar en Supabase SQL Editor
 -- ============================================================
 
+-- ============================================================
+-- Políticas para tenants
+-- ============================================================
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS tenants_select ON tenants;
+DROP POLICY IF EXISTS tenants_insert ON tenants;
+DROP POLICY IF EXISTS tenants_update ON tenants;
+
+CREATE POLICY tenants_select ON tenants
+  FOR SELECT USING (id = auth.uid());
+
+CREATE POLICY tenants_insert ON tenants
+  FOR INSERT WITH CHECK (id = auth.uid());
+
+CREATE POLICY tenants_update ON tenants
+  FOR UPDATE USING (id = auth.uid());
+
+-- ============================================================
+-- Políticas para empresas
+-- ============================================================
+
 -- Eliminar política existente si existe
 DROP POLICY IF EXISTS tenant_isolation ON empresas;
 DROP POLICY IF EXISTS empresas_select ON empresas;
