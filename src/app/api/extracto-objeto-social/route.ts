@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-// Allow larger uploads and longer execution
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
-
-    if (!files.length) {
-      return NextResponse.json(
-        { error: "No se enviaron archivos" },
-        { status: 400 }
-      );
-    }
+    const extractedTexts = formData.get("extractedTexts") as string | null;
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -24,74 +17,82 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check total size - limit to 20MB total
-    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
-    if (totalSize > 20 * 1024 * 1024) {
-      return NextResponse.json(
-        { error: "Los archivos exceden 20MB en total. Intenta con menos archivos." },
-        { status: 400 }
-      );
-    }
-
-    // Convert PDFs to base64 for Claude
-    const pdfContents: { name: string; base64: string }[] = [];
-    for (const file of files) {
-      const buffer = await file.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString("base64");
-      pdfContents.push({ name: file.name, base64 });
-    }
-
     const anthropic = new Anthropic({ apiKey });
 
-    // Build content blocks: one PDF document per file
-    const content: Anthropic.Messages.ContentBlockParam[] = [];
+    // Mode 1: Single PDF extraction (called per file)
+    if (files.length === 1 && !extractedTexts) {
+      const file = files[0];
+      const buffer = await file.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
 
-    for (const pdf of pdfContents) {
-      content.push({
-        type: "document",
-        source: {
-          type: "base64",
-          media_type: "application/pdf",
-          data: pdf.base64,
-        },
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: base64,
+                },
+              },
+              {
+                type: "text",
+                text: `Este es un documento legal/notarial de una empresa mexicana (acta constitutiva, modificación, poder, etc.).
+
+Extrae el contenido relevante sobre el OBJETO SOCIAL de la empresa. Si el documento modifica el objeto social, extrae la modificación. Si no contiene información sobre el objeto social, responde "SIN_OBJETO_SOCIAL" y un breve resumen de qué trata el documento.
+
+Responde solo con el texto extraído, sin encabezados.`,
+              },
+            ],
+          },
+        ],
       });
-      content.push({
-        type: "text",
-        text: `[Archivo: ${pdf.name}]`,
-      });
+
+      const texto =
+        response.content[0].type === "text" ? response.content[0].text : "";
+      return NextResponse.json({ texto, fileName: file.name });
     }
 
-    content.push({
-      type: "text",
-      text: `Analiza los documentos PDF anteriores. Son actas constitutivas y/o sus modificaciones de una empresa mexicana.
+    // Mode 2: Combine all extracted texts into final objeto social
+    if (extractedTexts) {
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: `A continuación están los extractos de múltiples documentos legales de una empresa mexicana (actas constitutivas y sus modificaciones):
 
-Extrae ÚNICAMENTE el objeto social vigente de la empresa, considerando todas las modificaciones.
+${extractedTexts}
 
-Reglas:
-- Si hay múltiples documentos, el objeto social más reciente prevalece sobre los anteriores.
-- Si un acta modifica parcialmente el objeto social, integra los cambios.
+Con base en todos estos documentos, genera el OBJETO SOCIAL VIGENTE de la empresa, considerando:
+- Si hay múltiples versiones, el objeto social más reciente prevalece.
+- Si un acta modifica parcialmente, integra los cambios.
 - Devuelve el objeto social completo y vigente en un solo texto corrido.
-- Si no encuentras un objeto social claro, indica qué actividades económicas se mencionan.
-- Responde SOLO con el texto del objeto social, sin encabezados ni explicaciones adicionales.`,
-    });
+- Si no hay un objeto social claro, describe las actividades económicas mencionadas.
+- Responde SOLO con el texto del objeto social, sin encabezados ni explicaciones.`,
+          },
+        ],
+      });
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      messages: [{ role: "user", content }],
-    });
+      const objetoSocial =
+        response.content[0].type === "text" ? response.content[0].text : "";
+      return NextResponse.json({ objetoSocial });
+    }
 
-    const textoExtraido =
-      response.content[0].type === "text" ? response.content[0].text : "";
-
-    return NextResponse.json({ objetoSocial: textoExtraido });
+    return NextResponse.json(
+      { error: "No se enviaron archivos ni textos" },
+      { status: 400 }
+    );
   } catch (error: unknown) {
     console.error("Error extrayendo objeto social:", error);
     const message =
       error instanceof Error ? error.message : "Error al procesar los documentos";
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

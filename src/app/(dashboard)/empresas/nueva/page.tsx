@@ -135,20 +135,42 @@ export default function NuevaEmpresaPage() {
     setObjetoApproved(false);
 
     try {
-      const formData = new FormData();
-      actasFiles.forEach((file) => formData.append("files", file));
+      // Paso 1: Extraer texto de cada PDF individualmente
+      const extractedParts: string[] = [];
+      for (let i = 0; i < actasFiles.length; i++) {
+        setExtractedObjeto(`Procesando archivo ${i + 1} de ${actasFiles.length}: ${actasFiles[i].name}...`);
+        const formData = new FormData();
+        formData.append("files", actasFiles[i]);
 
-      const res = await fetch("/api/extracto-objeto-social", {
+        const res = await fetch("/api/extracto-objeto-social", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (data.error) {
+          extractedParts.push(`[${actasFiles[i].name}]: Error - ${data.error}`);
+        } else {
+          extractedParts.push(`=== ${data.fileName || actasFiles[i].name} ===\n${data.texto}`);
+        }
+      }
+
+      // Paso 2: Combinar todos los textos y generar objeto social final
+      setExtractedObjeto("Generando objeto social vigente...");
+      const combineForm = new FormData();
+      combineForm.append("extractedTexts", extractedParts.join("\n\n"));
+
+      const combineRes = await fetch("/api/extracto-objeto-social", {
         method: "POST",
-        body: formData,
+        body: combineForm,
       });
 
-      const data = await res.json();
-      if (data.error) {
-        setExtractedObjeto(`Error: ${data.error}`);
+      const combineData = await combineRes.json();
+      if (combineData.error) {
+        setExtractedObjeto(`Error: ${combineData.error}`);
       } else {
-        setExtractedObjeto(data.objetoSocial);
-        setValue("objeto_social", data.objetoSocial, { shouldValidate: true });
+        setExtractedObjeto(combineData.objetoSocial);
+        setValue("objeto_social", combineData.objetoSocial, { shouldValidate: true });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error al conectar con el servidor.";
@@ -186,11 +208,23 @@ export default function NuevaEmpresaPage() {
       }
 
       const d = data.datos;
-      if (d.rfc) setValue("rfc", d.rfc, { shouldValidate: true });
-      if (d.razon_social) setValue("razon_social", d.razon_social, { shouldValidate: true });
-      if (d.regimen_codigo) setValue("regimen_codigo", d.regimen_codigo, { shouldValidate: true });
-      if (d.codigo_postal) setValue("codigo_postal", d.codigo_postal, { shouldValidate: true });
-      if (d.nombre_comercial) setValue("nombre_comercial", d.nombre_comercial);
+      if (d.rfc) setValue("rfc", d.rfc.trim(), { shouldValidate: true });
+      if (d.razon_social) setValue("razon_social", d.razon_social.trim(), { shouldValidate: true });
+      if (d.codigo_postal) setValue("codigo_postal", d.codigo_postal.trim(), { shouldValidate: true });
+      if (d.nombre_comercial) setValue("nombre_comercial", d.nombre_comercial.trim());
+
+      // Limpiar régimen: puede venir como "601", "601 - General...", etc.
+      if (d.regimen_codigo) {
+        const codigoRaw = String(d.regimen_codigo).trim();
+        // Extraer solo los primeros 3 dígitos
+        const match = codigoRaw.match(/(\d{3})/);
+        const codigo = match ? match[1] : codigoRaw;
+        // Verificar que existe en la lista
+        const regimenValido = REGIMENES_FISCALES.find((r) => r.codigo === codigo);
+        if (regimenValido) {
+          setValue("regimen_codigo", regimenValido.codigo, { shouldValidate: true });
+        }
+      }
 
       setCifExtracted(true);
     } catch {
@@ -584,8 +618,18 @@ export default function NuevaEmpresaPage() {
                   </div>
                 )}
 
-                {/* Resultado de extracción */}
-                {extractedObjeto && !extractedObjeto.startsWith("Error") && (
+                {/* Progreso de extracción */}
+                {extracting && extractedObjeto && (
+                  <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-950">
+                    <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">{extractedObjeto}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Resultado de extracción exitosa */}
+                {!extracting && extractedObjeto && !extractedObjeto.startsWith("Error") && (
                   <div className="rounded-lg bg-green-50 p-3 dark:bg-green-950">
                     <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
                       <CheckCircle2 className="h-4 w-4" />
