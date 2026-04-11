@@ -49,6 +49,7 @@ export default function CfdisPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [cfdis, setCfdis] = useState<Cfdi[]>([]);
+  const [empresaRfc, setEmpresaRfc] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
@@ -75,6 +76,20 @@ export default function CfdisPage() {
   const lastDay = new Date(selYear, selMonth + 1, 0).getDate();
   const periodoFin = `${selYear}-${String(selMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
+  // Cargar RFC de la empresa
+  useEffect(() => {
+    const cargarEmpresa = async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("empresas")
+        .select("rfc")
+        .eq("id", empresaId)
+        .single();
+      if (data) setEmpresaRfc((data as { rfc: string }).rfc);
+    };
+    cargarEmpresa();
+  }, [empresaId]);
+
   // Cargar CFDIs
   useEffect(() => {
     const cargar = async () => {
@@ -87,7 +102,7 @@ export default function CfdisPage() {
         .gte("fecha_emision", periodoInicio)
         .lte("fecha_emision", periodoFin)
         .order("fecha_emision", { ascending: false })
-        .limit(500);
+        .limit(1000);
 
       if (error) {
         console.error("Error cargando CFDIs:", error);
@@ -166,12 +181,19 @@ export default function CfdisPage() {
       return 0;
     });
 
-  // Resumen
-  const totalIngresos = cfdis
-    .filter((c) => c.tipo === "ingreso" && c.estado_sat === "vigente")
+  // Resumen — usar RFC de empresa para clasificar emitidos vs recibidos
+  const vigentes = cfdis.filter((c) => c.estado_sat === "vigente");
+  const totalIngresos = vigentes
+    .filter((c) => {
+      if (empresaRfc) return c.emisor_rfc === empresaRfc && c.tipo === "ingreso";
+      return c.direccion === "emitido" && c.tipo === "ingreso";
+    })
     .reduce((s, c) => s + c.total, 0);
-  const totalEgresos = cfdis
-    .filter((c) => c.tipo === "egreso" && c.estado_sat === "vigente")
+  const totalEgresos = vigentes
+    .filter((c) => {
+      if (empresaRfc) return c.receptor_rfc === empresaRfc && c.tipo === "ingreso";
+      return c.direccion === "recibido" && c.tipo === "ingreso";
+    })
     .reduce((s, c) => s + c.total, 0);
 
   const toggleOrden = (campo: "fecha_emision" | "total") => {
