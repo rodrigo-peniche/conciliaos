@@ -167,6 +167,7 @@ export default function EmpresaDashboardPage() {
     const supabase = createClient();
     let processed = 0;
     let errors = 0;
+    let firstError = "";
 
     const xmlFiles = Array.from(files).filter(
       (f) => f.name.toLowerCase().endsWith(".xml")
@@ -230,7 +231,7 @@ export default function EmpresaDashboardPage() {
 
         const tipoMap: Record<string, string> = { I: "ingreso", E: "egreso", T: "traslado", P: "pago", N: "nomina" };
 
-        await supabase.from("cfdis").upsert({
+        const { error: upsertError } = await supabase.from("cfdis").upsert({
           empresa_id: empresaId,
           uuid: uuid.toUpperCase(),
           rfc_emisor: rfcEmisor,
@@ -258,14 +259,29 @@ export default function EmpresaDashboardPage() {
           es_deducible: null,
         } as never, { onConflict: "uuid" });
 
-        processed++;
-        setCfdisCount(processed);
-      } catch {
+        if (upsertError) {
+          console.error(`Error CFDI ${file.name}:`, upsertError);
+          // Show first error to user
+          if (errors === 0) {
+            firstError = `${upsertError.message} (${upsertError.code || ""})`;
+          }
+          errors++;
+        } else {
+          processed++;
+        }
+        setCfdisCount(processed + errors);
+      } catch (e) {
+        console.error(`Error parsing ${file.name}:`, e);
         errors++;
       }
     }
 
-    setCfdisResult(`${processed} CFDIs cargados${errors > 0 ? `, ${errors} con error` : ""}.`);
+    let resultMsg = `${processed} CFDIs cargados exitosamente`;
+    if (errors > 0) {
+      resultMsg += `, ${errors} con error`;
+      if (firstError) resultMsg += `: ${firstError}`;
+    }
+    setCfdisResult(resultMsg + ".");
     setCfdisProcessing(false);
     setUltimaSync(new Date().toLocaleString("es-MX"));
     cargarDatos();
