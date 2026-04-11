@@ -14,6 +14,11 @@ import {
 import { AlertasPanel, type Alerta } from "@/components/dashboard/alertas-panel";
 import { ActividadReciente } from "@/components/dashboard/actividad-reciente";
 import { useEmpresaStore } from "@/hooks/use-empresa";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Download, FileText, RefreshCw, Calendar, CheckCircle2, Clock } from "lucide-react";
 import type { Database } from "@/lib/types/database.types";
 
 type Cfdi = Database["public"]["Tables"]["cfdis"]["Row"];
@@ -87,6 +92,11 @@ export default function EmpresaDashboardPage() {
   const [grafica, setGrafica] = useState<DatoMensual[]>(DEFAULT_GRAFICA);
   const [alertas] = useState<Alerta[]>([]);
   const [cfdisRecientes, setCfdisRecientes] = useState<Cfdi[]>([]);
+  const [satFechaInicio, setSatFechaInicio] = useState("");
+  const [satFechaFin, setSatFechaFin] = useState("");
+  const [descargandoCfdis, setDescargandoCfdis] = useState(false);
+  const [descargandoDeclaraciones, setDescargandoDeclaraciones] = useState(false);
+  const [ultimaSync, setUltimaSync] = useState<string | null>(null);
 
   // Cargar datos reales si existen
   const cargarDatos = useCallback(async () => {
@@ -137,6 +147,49 @@ export default function EmpresaDashboardPage() {
     cargarDatos();
   }, [cargarDatos]);
 
+  const handleDescargarCfdis = async () => {
+    if (!satFechaInicio || !satFechaFin) {
+      alert("Selecciona un rango de fechas.");
+      return;
+    }
+    setDescargandoCfdis(true);
+    try {
+      const res = await fetch(
+        `/api/sat/descargar-cfdis?empresaId=${empresaId}&fechaInicio=${satFechaInicio}&fechaFin=${satFechaFin}`
+      );
+      if (res.ok) {
+        setUltimaSync(new Date().toLocaleString("es-MX"));
+        cargarDatos();
+      } else {
+        alert("Error al descargar CFDIs del SAT. Verifica la conexion.");
+      }
+    } catch {
+      alert("Error de conexion con el servicio del SAT.");
+    }
+    setDescargandoCfdis(false);
+  };
+
+  const handleDescargarDeclaraciones = async () => {
+    if (!satFechaInicio || !satFechaFin) {
+      alert("Selecciona un rango de fechas.");
+      return;
+    }
+    setDescargandoDeclaraciones(true);
+    try {
+      const res = await fetch(
+        `/api/sat/descargar-declaraciones?empresaId=${empresaId}&fechaInicio=${satFechaInicio}&fechaFin=${satFechaFin}`
+      );
+      if (res.ok) {
+        setUltimaSync(new Date().toLocaleString("es-MX"));
+      } else {
+        alert("Error al descargar declaraciones del SAT.");
+      }
+    } catch {
+      alert("Error de conexion con el servicio del SAT.");
+    }
+    setDescargandoDeclaraciones(false);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -149,6 +202,87 @@ export default function EmpresaDashboardPage() {
           Resumen fiscal y contable del periodo actual.
         </p>
       </div>
+
+      {/* Descarga del SAT */}
+      <Card className="border-blue-200 dark:border-blue-900">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Download className="h-5 w-5 text-blue-600" />
+                Descargar del SAT
+              </CardTitle>
+              <CardDescription>
+                Descarga CFDIs y declaraciones directamente del portal del SAT.
+              </CardDescription>
+            </div>
+            {ultimaSync && (
+              <Badge variant="outline" className="flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-green-600" />
+                Ultima sincronizacion: {ultimaSync}
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" />
+                Fecha inicio
+              </label>
+              <Input
+                type="date"
+                value={satFechaInicio}
+                onChange={(e) => setSatFechaInicio(e.target.value)}
+                className="w-[170px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" />
+                Fecha fin
+              </label>
+              <Input
+                type="date"
+                value={satFechaFin}
+                onChange={(e) => setSatFechaFin(e.target.value)}
+                className="w-[170px]"
+              />
+            </div>
+            <Button
+              onClick={handleDescargarCfdis}
+              disabled={descargandoCfdis}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {descargandoCfdis ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="mr-2 h-4 w-4" />
+              )}
+              Descargar CFDIs del SAT
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDescargarDeclaraciones}
+              disabled={descargandoDeclaraciones}
+            >
+              {descargandoDeclaraciones ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Descargar Declaraciones
+            </Button>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              La descarga puede tardar varios minutos dependiendo del volumen de CFDIs.
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* KPI Cards */}
       <KpiCards data={kpi} />

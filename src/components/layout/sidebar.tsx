@@ -15,6 +15,8 @@ import {
   MessageSquare,
   Settings,
   CreditCard,
+  Landmark,
+  Shield,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -51,6 +53,16 @@ const NAV_EMPRESA = [
     label: "Cuentas Bancarias",
     href: "/cuentas",
     icon: CreditCard,
+  },
+  {
+    label: "Bancos",
+    href: "/bancos",
+    icon: Landmark,
+  },
+  {
+    label: "IMSS / Infonavit",
+    href: "/imss",
+    icon: Shield,
   },
   {
     label: "Contratos",

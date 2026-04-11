@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { EmpresaSwitcher } from "./empresa-switcher";
-import { useTenantStore } from "@/hooks/use-tenant";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,22 +18,39 @@ import { Badge } from "@/components/ui/badge";
 import { Bell, LogOut, Settings, User } from "lucide-react";
 
 export function Header() {
-  const { usuario, tenant } = useTenantStore();
+  const router = useRouter();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userInitials, setUserInitials] = useState("...");
 
-  const initials = usuario
-    ? `${usuario.nombre.charAt(0)}${(usuario.apellidos || "").charAt(0)}`.toUpperCase()
-    : "??";
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      const email = data.user?.email ?? null;
+      setUserEmail(email);
+      if (email) {
+        const parts = email.split("@")[0].split(/[._-]/);
+        if (parts.length >= 2) {
+          setUserInitials(
+            `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase()
+          );
+        } else {
+          setUserInitials(email.substring(0, 2).toUpperCase());
+        }
+      }
+    });
+  }, []);
+
+  const handleSignOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/");
+  };
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background px-6">
       {/* Izquierda: Empresa switcher */}
       <div className="flex items-center gap-4">
         <EmpresaSwitcher />
-        {tenant && (
-          <Badge variant="secondary" className="hidden md:inline-flex">
-            {tenant.plan}
-          </Badge>
-        )}
       </div>
 
       {/* Derecha: Notificaciones y usuario */}
@@ -39,17 +58,14 @@ export function Header() {
         {/* Notificaciones */}
         <button className="relative inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent">
           <Bell className="h-5 w-5" />
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
-            3
-          </span>
         </button>
 
-        {/* Menú de usuario */}
+        {/* Menu de usuario */}
         <DropdownMenu>
           <DropdownMenuTrigger className="relative h-9 w-9 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Avatar className="h-9 w-9">
               <AvatarFallback className="bg-blue-100 text-blue-700 text-sm font-semibold">
-                {initials}
+                {userInitials}
               </AvatarFallback>
             </Avatar>
           </DropdownMenuTrigger>
@@ -57,14 +73,11 @@ export function Header() {
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">
-                  {usuario?.nombre} {usuario?.apellidos}
+                  {userEmail ?? "Usuario"}
                 </p>
                 <p className="text-xs leading-none text-muted-foreground">
-                  {usuario?.email}
+                  {userEmail}
                 </p>
-                <Badge variant="outline" className="mt-1 w-fit text-xs">
-                  {usuario?.rol?.replace("_", " ")}
-                </Badge>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -74,12 +87,12 @@ export function Header() {
             </DropdownMenuItem>
             <DropdownMenuItem>
               <Settings className="mr-2 h-4 w-4" />
-              Configuración
+              Configuracion
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600">
+            <DropdownMenuItem className="text-red-600" onClick={handleSignOut}>
               <LogOut className="mr-2 h-4 w-4" />
-              Cerrar sesión
+              Cerrar sesion
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
