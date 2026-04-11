@@ -619,9 +619,15 @@ export default function EmpresaDashboardPage() {
                     if (res.ok) {
                       setUltimaSync(new Date().toLocaleString("es-MX"));
                       cargarDatos();
-                      alert("Sincronización iniciada. Job ID: " + (data.jobId || "N/A") + ". Los CFDIs aparecerán en unos minutos.");
+                      if (data.estado === "completado") {
+                        setCfdisResult(`SAT: ${data.totalDescargados} CFDIs descargados exitosamente${data.totalErrores > 0 ? `, ${data.totalErrores} errores` : ""}.`);
+                      } else if (data.estado === "en_proceso") {
+                        setCfdisResult(`SAT: Solicitud en proceso (${data.numeroCFDIs || 0} CFDIs encontrados). El SAT puede tardar minutos u horas. Intenta de nuevo más tarde.`);
+                      } else {
+                        setCfdisResult(`SAT: ${data.mensaje || "Sincronización iniciada."}`);
+                      }
                     } else {
-                      alert("Error: " + (data.error || "Verifica que la e.firma esté configurada y las tablas de sincronización existan en Supabase."));
+                      alert("Error: " + (data.error || "Verifica que la e.firma esté configurada."));
                     }
                   } catch {
                     alert("Error de conexión con el servidor. Intenta de nuevo.");

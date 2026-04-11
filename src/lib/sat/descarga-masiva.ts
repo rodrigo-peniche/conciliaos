@@ -1,20 +1,22 @@
 /**
  * Cliente para el servicio de Descarga Masiva de CFDIs del SAT
- * Endpoints SOAP: https://cfdidescargamasiva.clouda.sat.gob.mx
+ * Implementa los 4 pasos: Autenticación, Solicitud, Verificación, Descarga
+ *
+ * Docs: https://www.sat.gob.mx/consultas/42968/consulta-la-documentacion-tecnica-del-servicio-web-de-descarga-masiva
  */
 
 import crypto from "crypto";
 
-// Endpoints del servicio de descarga masiva del SAT
+// --- Endpoints producción ---
 const SAT_ENDPOINTS = {
   autenticar:
-    "https://cfdidescargamasiva.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc",
+    "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc",
   solicitar:
-    "https://cfdidescargamasiva.clouda.sat.gob.mx/SolicitaDescargaService.svc",
+    "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/SolicitaDescargaService.svc",
   verificar:
-    "https://cfdidescargamasiva.clouda.sat.gob.mx/VerificaSolicitudDescargaService.svc",
+    "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/VerificaSolicitudDescargaService.svc",
   descargar:
-    "https://cfdidescargamasiva.clouda.sat.gob.mx/DescargarSolicitudService.svc",
+    "https://cfdidescargamasaborrecepcion.clouda.sat.gob.mx/DescargarSolicitudService.svc",
 } as const;
 
 export type TipoSolicitud = "CFDI" | "Metadata";
@@ -31,7 +33,7 @@ export interface SolicitudDescargaParams {
 }
 
 export interface VerificacionResult {
-  estadoSolicitud: string; // '1'=Aceptada, '2'=EnProceso, '3'=Terminada, '4'=Error, '5'=Rechazada
+  estadoSolicitud: string; // 1=Aceptada 2=EnProceso 3=Terminada 4=Error 5=Rechazada
   codigoEstadoSolicitud: string;
   numeroCFDIs: number;
   mensaje: string;
@@ -44,109 +46,180 @@ export interface SATAuthToken {
   expiresAt: Date;
 }
 
+/**
+ * Extrae el RFC del subject de un certificado X.509 DER (.cer del SAT)
+ * El SAT usa UniqueIdentifier o serialNumber en el subject para el RFC
+ */
+export function extractRfcFromCer(cerDer: Buffer): string {
+  // Convertir DER a PEM para usar con crypto
+  const pem = derToPem(cerDer, "CERTIFICATE");
+  const cert = new crypto.X509Certificate(pem);
+
+  // El subject contiene algo como:
+  // OID.2.5.4.45=... / serialNumber=... (esto es el RFC en certs del SAT)
+  // O puede estar en el campo UniqueIdentifier
+  const subject = cert.subject;
+
+  // Buscar serialNumber (RFC está aquí en certificados del SAT)
+  const snMatch = subject.match(/serialNumber=([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/i);
+  if (snMatch) return snMatch[1].toUpperCase();
+
+  // Buscar en OID 2.5.4.45 (UniqueIdentifier)
+  const oidMatch = subject.match(/OID\.2\.5\.4\.45=([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/i);
+  if (oidMatch) return oidMatch[1].toUpperCase();
+
+  // Buscar cualquier cosa que parezca RFC en el subject
+  const rfcMatch = subject.match(/([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/i);
+  if (rfcMatch) return rfcMatch[1].toUpperCase();
+
+  // Intentar en subjectAltName o extensiones
+  const infoAccess = cert.infoAccess;
+  if (infoAccess) {
+    const rfcInInfo = infoAccess.match(/([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/i);
+    if (rfcInInfo) return rfcInInfo[1].toUpperCase();
+  }
+
+  throw new SATError("No se pudo extraer el RFC del certificado", "CERT_RFC_NOT_FOUND");
+}
+
+/**
+ * Convierte DER a PEM
+ */
+function derToPem(der: Buffer, type: string): string {
+  const b64 = der.toString("base64");
+  const lines = b64.match(/.{1,64}/g) || [];
+  return `-----BEGIN ${type}-----\n${lines.join("\n")}\n-----END ${type}-----\n`;
+}
+
+/**
+ * Crea la llave privada a partir del .key del SAT (DER PKCS#8 cifrado)
+ */
+function createPrivateKey(keyDer: Buffer, password: string): crypto.KeyObject {
+  // El .key del SAT es PKCS#8 cifrado en DER
+  // Node.js crypto puede manejarlo directamente
+  return crypto.createPrivateKey({
+    key: keyDer,
+    format: "der",
+    type: "pkcs8",
+    passphrase: password,
+  });
+}
+
 export class SATDescargaMasiva {
-  private cer: Buffer;
-  private key: Buffer;
-  private password: string;
+  private cerDer: Buffer;
+  private cerPem: string;
+  private cerBase64: string;
+  private privateKey: crypto.KeyObject;
+  private rfc: string;
   private token: SATAuthToken | null = null;
 
-  constructor(cer: Buffer, key: Buffer, password: string) {
-    this.cer = cer;
-    this.key = key;
-    this.password = password;
+  constructor(cerDer: Buffer, keyDer: Buffer, password: string) {
+    this.cerDer = cerDer;
+    this.cerPem = derToPem(cerDer, "CERTIFICATE");
+    // Base64 del certificado sin headers PEM
+    this.cerBase64 = cerDer.toString("base64");
+    this.privateKey = createPrivateKey(keyDer, password);
+    this.rfc = extractRfcFromCer(cerDer);
+  }
+
+  getRfc(): string {
+    return this.rfc;
   }
 
   /**
-   * Autentica con el SAT y obtiene un token de sesión
-   * El token es válido por 5 minutos
+   * Firma datos con SHA-1 usando la llave privada (requerido por SAT)
+   */
+  private signSha1(data: string): string {
+    const sign = crypto.createSign("RSA-SHA1");
+    sign.update(data);
+    return sign.sign(this.privateKey, "base64");
+  }
+
+  /**
+   * Calcula digest SHA-1 de datos
+   */
+  private digestSha1(data: string): string {
+    return crypto.createHash("sha1").update(data).digest("base64");
+  }
+
+  /**
+   * Paso 1: Autenticar con el SAT y obtener token de sesión (válido 5 min)
    */
   async autenticar(): Promise<string> {
     const now = new Date();
-    const expires = new Date(now.getTime() + 5 * 60 * 1000); // 5 min
-
+    const expires = new Date(now.getTime() + 5 * 60 * 1000);
     const created = now.toISOString();
     const expiresStr = expires.toISOString();
+    const uuid = crypto.randomUUID();
 
-    // Generar nonce para WS-Security
-    const nonce = crypto.randomBytes(16).toString("base64");
+    // Timestamp que será firmado (XML canónico - sin whitespace extra)
+    const timestampXml =
+      `<u:Timestamp xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" u:Id="_0">` +
+      `<u:Created>${created}</u:Created>` +
+      `<u:Expires>${expiresStr}</u:Expires>` +
+      `</u:Timestamp>`;
 
-    // Extraer certificado en base64 (sin headers PEM)
-    const cerBase64 = this.cer
-      .toString("utf-8")
-      .replace(/-----BEGIN CERTIFICATE-----/g, "")
-      .replace(/-----END CERTIFICATE-----/g, "")
-      .replace(/\s/g, "");
+    const digestValue = this.digestSha1(timestampXml);
 
-    // Construir el timestamp para firmar
-    const timestampXml = `<u:Timestamp xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" u:Id="_0"><u:Created>${created}</u:Created><u:Expires>${expiresStr}</u:Expires></u:Timestamp>`;
+    // SignedInfo canónico
+    const signedInfoXml =
+      `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<Reference URI="#_0">` +
+      `<Transforms>` +
+      `<Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform>` +
+      `</Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<DigestValue>${digestValue}</DigestValue>` +
+      `</Reference>` +
+      `</SignedInfo>`;
 
-    // Firmar el timestamp con la llave privada
-    const sign = crypto.createSign("SHA1");
-    sign.update(timestampXml);
-    const signature = sign.sign(
-      { key: this.key, passphrase: this.password },
-      "base64"
-    );
+    const signatureValue = this.signSha1(signedInfoXml);
 
-    // Construir SOAP envelope de autenticación
-    const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
-  <s:Header>
-    <o:Security xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" s:mustUnderstand="1">
-      ${timestampXml}
-      <o:BinarySecurityToken u:Id="X509Token" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3" EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary">${cerBase64}</o:BinarySecurityToken>
-      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
-        <SignedInfo>
-          <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
-          <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
-          <Reference URI="#_0">
-            <Transforms>
-              <Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
-            </Transforms>
-            <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
-            <DigestValue>${crypto.createHash("sha1").update(timestampXml).digest("base64")}</DigestValue>
-          </Reference>
-        </SignedInfo>
-        <SignatureValue>${signature}</SignatureValue>
-        <KeyInfo>
-          <o:SecurityTokenReference>
-            <o:Reference URI="#X509Token" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"/>
-          </o:SecurityTokenReference>
-        </KeyInfo>
-      </Signature>
-    </o:Security>
-  </s:Header>
-  <s:Body>
-    <Autentica xmlns="http://DescargaMasivaTerceros.gob.mx"/>
-  </s:Body>
-</s:Envelope>`;
+    const soapEnvelope = `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">` +
+      `<s:Header>` +
+      `<o:Security xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" s:mustUnderstand="1">` +
+      `${timestampXml}` +
+      `<o:BinarySecurityToken u:Id="uuid-${uuid}-1" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3" EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary">${this.cerBase64}</o:BinarySecurityToken>` +
+      `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `${signedInfoXml}` +
+      `<SignatureValue>${signatureValue}</SignatureValue>` +
+      `<KeyInfo>` +
+      `<o:SecurityTokenReference>` +
+      `<o:Reference URI="#uuid-${uuid}-1" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"></o:Reference>` +
+      `</o:SecurityTokenReference>` +
+      `</KeyInfo>` +
+      `</Signature>` +
+      `</o:Security>` +
+      `</s:Header>` +
+      `<s:Body>` +
+      `<Autentica xmlns="http://DescargaMasivaTerceros.gob.mx"></Autentica>` +
+      `</s:Body>` +
+      `</s:Envelope>`;
 
     const response = await fetch(SAT_ENDPOINTS.autenticar, {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction:
-          "http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica",
+        SOAPAction: "http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica",
       },
       body: soapEnvelope,
     });
 
     if (!response.ok) {
+      const text = await response.text();
       throw new SATError(
-        `Error de autenticación SAT: HTTP ${response.status}`,
+        `Error autenticación SAT: HTTP ${response.status} - ${text.substring(0, 200)}`,
         "AUTH_HTTP_ERROR"
       );
     }
 
     const responseText = await response.text();
-
-    // Extraer token de la respuesta SOAP
-    const tokenMatch = responseText.match(
-      /<AutenticaResult>(.*?)<\/AutenticaResult>/
-    );
+    const tokenMatch = responseText.match(/<AutenticaResult>([\s\S]*?)<\/AutenticaResult>/);
     if (!tokenMatch || !tokenMatch[1]) {
       throw new SATError(
-        "No se pudo extraer el token de autenticación del SAT",
+        `No se pudo extraer token. Respuesta: ${responseText.substring(0, 300)}`,
         "AUTH_TOKEN_MISSING"
       );
     }
@@ -160,17 +233,11 @@ export class SATDescargaMasiva {
     return tokenMatch[1];
   }
 
-  /**
-   * Verifica si el token actual es válido
-   */
   private isTokenValid(): boolean {
     if (!this.token) return false;
     return new Date() < this.token.expiresAt;
   }
 
-  /**
-   * Obtiene un token válido, re-autenticando si es necesario
-   */
   private async getToken(): Promise<string> {
     if (!this.isTokenValid()) {
       await this.autenticar();
@@ -179,67 +246,85 @@ export class SATDescargaMasiva {
   }
 
   /**
-   * Solicita una descarga masiva de CFDIs al SAT
-   * Retorna el ID de la solicitud para seguimiento
+   * Paso 2: Solicitar descarga masiva de CFDIs
+   * Retorna el IdSolicitud para seguimiento
    */
-  async solicitarDescarga(
-    params: SolicitudDescargaParams
-  ): Promise<string> {
+  async solicitarDescarga(params: SolicitudDescargaParams): Promise<string> {
     const token = await this.getToken();
 
-    const fechaInicio = params.fechaInicio.toISOString().split("T")[0] + "T00:00:00";
-    const fechaFin = params.fechaFin.toISOString().split("T")[0] + "T23:59:59";
+    const fechaInicio = params.fechaInicio.toISOString().replace(/\.\d{3}Z$/, "");
+    const fechaFin = params.fechaFin.toISOString().replace(/\.\d{3}Z$/, "");
 
-    let tipoComprobanteAttr = "";
-    if (params.tipoComprobante) {
-      tipoComprobanteAttr = ` TipoComprobante="${params.tipoComprobante}"`;
-    }
+    // Construir atributos de la solicitud
+    let solicitudAttrs = `RfcSolicitante="${params.rfcSolicitante}" FechaInicial="${fechaInicio}" FechaFinal="${fechaFin}" TipoSolicitud="${params.tipoSolicitud}"`;
+    if (params.rfcEmisor) solicitudAttrs += ` RfcEmisor="${params.rfcEmisor}"`;
+    if (params.rfcReceptor) solicitudAttrs += ` RfcReceptor="${params.rfcReceptor}"`;
+    if (params.tipoComprobante) solicitudAttrs += ` TipoComprobante="${params.tipoComprobante}"`;
 
-    let rfcEmisorAttr = "";
-    if (params.rfcEmisor) {
-      rfcEmisorAttr = ` RfcEmisor="${params.rfcEmisor}"`;
-    }
+    // Contenido a firmar: el nodo solicitud
+    const solicitudXml =
+      `<des:SolicitaDescarga xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
+      `<des:solicitud ${solicitudAttrs}></des:solicitud>` +
+      `</des:SolicitaDescarga>`;
 
-    let rfcReceptorAttr = "";
-    if (params.rfcReceptor) {
-      rfcReceptorAttr = ` RfcReceptor="${params.rfcReceptor}"`;
-    }
+    const digestValue = this.digestSha1(solicitudXml);
+    const signedInfoXml =
+      `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<Reference URI="">` +
+      `<Transforms>` +
+      `<Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform>` +
+      `</Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<DigestValue>${digestValue}</DigestValue>` +
+      `</Reference>` +
+      `</SignedInfo>`;
 
-    const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">
-  <s:Header/>
-  <s:Body>
-    <des:SolicitaDescarga>
-      <des:solicitud RfcSolicitante="${params.rfcSolicitante}" FechaInicial="${fechaInicio}" FechaFinal="${fechaFin}" TipoSolicitud="${params.tipoSolicitud}"${tipoComprobanteAttr}${rfcEmisorAttr}${rfcReceptorAttr}/>
-    </des:SolicitaDescarga>
-  </s:Body>
-</s:Envelope>`;
+    const signatureValue = this.signSha1(signedInfoXml);
+
+    const soapEnvelope =
+      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">` +
+      `<s:Header/>` +
+      `<s:Body>` +
+      `<des:SolicitaDescarga>` +
+      `<des:solicitud ${solicitudAttrs}>` +
+      `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `${signedInfoXml}` +
+      `<SignatureValue>${signatureValue}</SignatureValue>` +
+      `<KeyInfo>` +
+      `<X509Data><X509Certificate>${this.cerBase64}</X509Certificate></X509Data>` +
+      `</KeyInfo>` +
+      `</Signature>` +
+      `</des:solicitud>` +
+      `</des:SolicitaDescarga>` +
+      `</s:Body>` +
+      `</s:Envelope>`;
 
     const response = await fetch(SAT_ENDPOINTS.solicitar, {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction:
-          "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescarga",
+        SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescarga",
         Authorization: `WRAP access_token="${token}"`,
       },
       body: soapEnvelope,
     });
 
     if (!response.ok) {
+      const text = await response.text();
       throw new SATError(
-        `Error al solicitar descarga: HTTP ${response.status}`,
+        `Error al solicitar descarga: HTTP ${response.status} - ${text.substring(0, 200)}`,
         "SOLICITUD_HTTP_ERROR"
       );
     }
 
     const responseText = await response.text();
-
     const idSolicitud = extractXmlValue(responseText, "IdSolicitud");
     const codEstatus = extractXmlValue(responseText, "CodEstatus");
+    const mensaje = extractXmlValue(responseText, "Mensaje") || "";
 
     if (codEstatus !== "5000") {
-      const mensaje = extractXmlValue(responseText, "Mensaje") || "Error desconocido";
       throw new SATError(
         `SAT rechazó la solicitud: ${mensaje} (código: ${codEstatus})`,
         "SOLICITUD_RECHAZADA"
@@ -248,7 +333,7 @@ export class SATDescargaMasiva {
 
     if (!idSolicitud) {
       throw new SATError(
-        "No se recibió ID de solicitud del SAT",
+        `No se recibió IdSolicitud. Respuesta: ${responseText.substring(0, 300)}`,
         "SOLICITUD_SIN_ID"
       );
     }
@@ -257,27 +342,54 @@ export class SATDescargaMasiva {
   }
 
   /**
-   * Verifica el estado de una solicitud de descarga
+   * Paso 3: Verificar estado de una solicitud
    */
   async verificarSolicitud(idSolicitud: string): Promise<VerificacionResult> {
     const token = await this.getToken();
 
-    const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">
-  <s:Header/>
-  <s:Body>
-    <des:VerificaSolicitudDescarga>
-      <des:solicitud IdSolicitud="${idSolicitud}" RfcSolicitante="${this.getRfcFromCer()}"/>
-    </des:VerificaSolicitudDescarga>
-  </s:Body>
-</s:Envelope>`;
+    // Firmar la verificación
+    const verificaXml =
+      `<des:VerificaSolicitudDescarga xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
+      `<des:solicitud IdSolicitud="${idSolicitud}" RfcSolicitante="${this.rfc}"></des:solicitud>` +
+      `</des:VerificaSolicitudDescarga>`;
+
+    const digestValue = this.digestSha1(verificaXml);
+    const signedInfoXml =
+      `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<Reference URI="">` +
+      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform></Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<DigestValue>${digestValue}</DigestValue>` +
+      `</Reference>` +
+      `</SignedInfo>`;
+
+    const signatureValue = this.signSha1(signedInfoXml);
+
+    const soapEnvelope =
+      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
+      `<s:Header/>` +
+      `<s:Body>` +
+      `<des:VerificaSolicitudDescarga>` +
+      `<des:solicitud IdSolicitud="${idSolicitud}" RfcSolicitante="${this.rfc}">` +
+      `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `${signedInfoXml}` +
+      `<SignatureValue>${signatureValue}</SignatureValue>` +
+      `<KeyInfo>` +
+      `<X509Data><X509Certificate>${this.cerBase64}</X509Certificate></X509Data>` +
+      `</KeyInfo>` +
+      `</Signature>` +
+      `</des:solicitud>` +
+      `</des:VerificaSolicitudDescarga>` +
+      `</s:Body>` +
+      `</s:Envelope>`;
 
     const response = await fetch(SAT_ENDPOINTS.verificar, {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction:
-          "http://DescargaMasivaTerceros.sat.gob.mx/IVerificaSolicitudDescargaService/VerificaSolicitudDescarga",
+        SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/IVerificaSolicitudDescargaService/VerificaSolicitudDescarga",
         Authorization: `WRAP access_token="${token}"`,
       },
       body: soapEnvelope,
@@ -291,7 +403,6 @@ export class SATDescargaMasiva {
     }
 
     const responseText = await response.text();
-
     const estadoSolicitud = extractXmlValue(responseText, "EstadoSolicitud") || "0";
     const codigoEstado = extractXmlValue(responseText, "CodigoEstadoSolicitud") || "0";
     const numeroCFDIs = parseInt(extractXmlValue(responseText, "NumeroCFDIs") || "0", 10);
@@ -305,37 +416,57 @@ export class SATDescargaMasiva {
       paquetes.push(match[1]);
     }
 
-    return {
-      estadoSolicitud,
-      codigoEstadoSolicitud: codigoEstado,
-      numeroCFDIs,
-      mensaje,
-      paquetes,
-    };
+    return { estadoSolicitud, codigoEstadoSolicitud: codigoEstado, numeroCFDIs, mensaje, paquetes };
   }
 
   /**
-   * Descarga un paquete de CFDIs (ZIP con XMLs)
+   * Paso 4: Descargar un paquete (ZIP con XMLs en base64)
    */
   async descargarPaquete(idPaquete: string): Promise<Buffer> {
     const token = await this.getToken();
 
-    const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">
-  <s:Header/>
-  <s:Body>
-    <des:PeticionDescargaMasivaTercerosEntrada>
-      <des:peticionDescarga IdPaquete="${idPaquete}" RfcSolicitante="${this.getRfcFromCer()}"/>
-    </des:PeticionDescargaMasivaTercerosEntrada>
-  </s:Body>
-</s:Envelope>`;
+    const descargaXml =
+      `<des:PeticionDescargaMasivaTercerosEntrada xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
+      `<des:peticionDescarga IdPaquete="${idPaquete}" RfcSolicitante="${this.rfc}"></des:peticionDescarga>` +
+      `</des:PeticionDescargaMasivaTercerosEntrada>`;
+
+    const digestValue = this.digestSha1(descargaXml);
+    const signedInfoXml =
+      `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<Reference URI="">` +
+      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform></Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<DigestValue>${digestValue}</DigestValue>` +
+      `</Reference>` +
+      `</SignedInfo>`;
+
+    const signatureValue = this.signSha1(signedInfoXml);
+
+    const soapEnvelope =
+      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
+      `<s:Header/>` +
+      `<s:Body>` +
+      `<des:PeticionDescargaMasivaTercerosEntrada>` +
+      `<des:peticionDescarga IdPaquete="${idPaquete}" RfcSolicitante="${this.rfc}">` +
+      `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` +
+      `${signedInfoXml}` +
+      `<SignatureValue>${signatureValue}</SignatureValue>` +
+      `<KeyInfo>` +
+      `<X509Data><X509Certificate>${this.cerBase64}</X509Certificate></X509Data>` +
+      `</KeyInfo>` +
+      `</Signature>` +
+      `</des:peticionDescarga>` +
+      `</des:PeticionDescargaMasivaTercerosEntrada>` +
+      `</s:Body>` +
+      `</s:Envelope>`;
 
     const response = await fetch(SAT_ENDPOINTS.descargar, {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction:
-          "http://DescargaMasivaTerceros.sat.gob.mx/IDescargarSolicitudService/Descargar",
+        SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/IDescargarSolicitudService/Descargar",
         Authorization: `WRAP access_token="${token}"`,
       },
       body: soapEnvelope,
@@ -349,8 +480,6 @@ export class SATDescargaMasiva {
     }
 
     const responseText = await response.text();
-
-    // Extraer el paquete en base64
     const paqueteBase64 = extractXmlValue(responseText, "Paquete");
     if (!paqueteBase64) {
       throw new SATError(
@@ -361,21 +490,13 @@ export class SATDescargaMasiva {
 
     return Buffer.from(paqueteBase64, "base64");
   }
-
-  /**
-   * Extrae el RFC del certificado
-   */
-  private getRfcFromCer(): string {
-    // El RFC se encuentra en el subject del certificado X.509
-    // Por ahora retornamos un placeholder - en producción se extrae del certificado
-    return "";
-  }
 }
 
 // --- Utilidades ---
 
 function extractXmlValue(xml: string, tagName: string): string | null {
-  const regex = new RegExp(`<[^:]*:?${tagName}[^>]*>([^<]*)<`, "i");
+  // Match both with and without namespace prefix
+  const regex = new RegExp(`<(?:[^:]+:)?${tagName}[^>]*>([^<]*)<`, "i");
   const match = xml.match(regex);
   return match ? match[1] : null;
 }
@@ -385,6 +506,7 @@ function extractXmlValue(xml: string, tagName: string): string | null {
 export type SATErrorCode =
   | "AUTH_HTTP_ERROR"
   | "AUTH_TOKEN_MISSING"
+  | "CERT_RFC_NOT_FOUND"
   | "SOLICITUD_HTTP_ERROR"
   | "SOLICITUD_RECHAZADA"
   | "SOLICITUD_SIN_ID"
