@@ -77,6 +77,7 @@ export default function NuevaEmpresaPage() {
   const [editingObjeto, setEditingObjeto] = useState(false);
   const [cerFile, setCerFile] = useState<File | null>(null);
   const [keyFile, setKeyFile] = useState<File | null>(null);
+  const [fielPassword, setFielPassword] = useState("");
   const router = useRouter();
 
   const {
@@ -290,6 +291,26 @@ export default function NuevaEmpresaPage() {
       }
 
       const empresaId = (empresa as unknown as { id: string }).id;
+
+      // Upload FIEL files if provided
+      if (cerFile || keyFile || fielPassword) {
+        try {
+          const fielForm = new FormData();
+          fielForm.append("empresaId", empresaId);
+          if (cerFile) fielForm.append("cer", cerFile);
+          if (keyFile) fielForm.append("key", keyFile);
+          if (fielPassword) fielForm.append("password", fielPassword);
+
+          await fetch("/api/sat/fiel/upload", {
+            method: "POST",
+            body: fielForm,
+          });
+        } catch (e) {
+          console.error("Error uploading FIEL:", e);
+          // Non-blocking - empresa already created
+        }
+      }
+
       router.push(`/empresas/${empresaId}`);
     } catch (error) {
       console.error("Error al crear empresa:", error);
@@ -801,7 +822,12 @@ export default function NuevaEmpresaPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Contraseña de la e.firma</Label>
-                  <Input type="password" placeholder="••••••••" />
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    value={fielPassword}
+                    onChange={(e) => setFielPassword(e.target.value)}
+                  />
                 </div>
               </div>
 
