@@ -105,48 +105,70 @@ export default function EmpresaDashboardPage() {
   const [descargandoDeclaraciones, setDescargandoDeclaraciones] = useState(false);
   const [ultimaSync, setUltimaSync] = useState<string | null>(null);
 
-  // Cargar datos reales si existen
+  // Cargar datos reales desde Supabase
   const cargarDatos = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/conciliacion?empresaId=${empresaId}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const cfdis: Cfdi[] = data.cfdis || [];
-        const movs = data.movimientos || [];
+      const supabase = createClient();
 
-        if (cfdis.length > 0) {
-          setCfdisRecientes(cfdis.slice(0, 10));
+      // Cargar CFDIs directamente de Supabase
+      const { data: cfdisData } = await supabase
+        .from("cfdis")
+        .select("*")
+        .eq("empresa_id", empresaId)
+        .order("fecha_emision", { ascending: false });
 
-          const gastoTotal = cfdis.reduce((s: number, c: Cfdi) => s + c.total, 0);
-          const deducibles = cfdis.filter((c: Cfdi) => c.es_deducible);
-          const pctDed =
-            cfdis.length > 0
-              ? Math.round((deducibles.length / cfdis.length) * 100)
-              : 0;
+      const cfdis = (cfdisData || []) as unknown as Cfdi[];
 
-          const conciliados = movs.filter(
-            (m: { estado_conciliacion: string }) => m.estado_conciliacion === "conciliado"
-          ).length;
-          const pctConc =
-            movs.length > 0
-              ? Math.round((conciliados / movs.length) * 100)
-              : 0;
+      if (cfdis.length > 0) {
+        setCfdisRecientes(cfdis.slice(0, 10));
 
-          setKpi({
-            cfdisRecibidos: cfdis.length,
-            cfdiVariacion: 0,
-            gastoTotal,
-            pctDeducible: pctDed,
-            pctConciliacion: pctConc,
-            movsPendientes: movs.length - conciliados,
-            alertasActivas: 0,
-          });
-        }
+        const gastoTotal = cfdis
+          .filter((c) => c.tipo === "ingreso" || c.tipo === "egreso")
+          .reduce((s, c) => s + (c.total || 0), 0);
+        const deducibles = cfdis.filter((c) => c.es_deducible === true);
+        const analizados = cfdis.filter((c) => c.es_deducible !== null);
+        const pctDed =
+          analizados.length > 0
+            ? Math.round((deducibles.length / analizados.length) * 100)
+            : 0;
+
+        setKpi({
+          cfdisRecibidos: cfdis.length,
+          cfdiVariacion: 0,
+          gastoTotal,
+          pctDeducible: pctDed,
+          pctConciliacion: 0,
+          movsPendientes: 0,
+          alertasActivas: 0,
+        });
+
+        // Generar datos de gráfica por mes
+        const meses: Record<string, { deducible: number; noDeducible: number }> = {};
+        cfdis.forEach((c) => {
+          const fecha = c.fecha_emision ? new Date(c.fecha_emision) : null;
+          if (!fecha) return;
+          const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}`;
+          if (!meses[key]) meses[key] = { deducible: 0, noDeducible: 0 };
+          if (c.es_deducible === true) {
+            meses[key].deducible += c.total || 0;
+          } else {
+            meses[key].noDeducible += c.total || 0;
+          }
+        });
+
+        const graficaData: DatoMensual[] = Object.entries(meses)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(-6)
+          .map(([mes, data]) => ({
+            mes: new Date(mes + "-01").toLocaleDateString("es-MX", { month: "short" }),
+            deducible: Math.round(data.deducible),
+            noDeducible: Math.round(data.noDeducible),
+          }));
+
+        if (graficaData.length > 0) setGrafica(graficaData);
       }
-    } catch {
-      // use defaults
+    } catch (e) {
+      console.error("Error cargando datos:", e);
     }
   }, [empresaId]);
 
@@ -234,29 +256,20 @@ export default function EmpresaDashboardPage() {
         const { error: upsertError } = await supabase.from("cfdis").upsert({
           empresa_id: empresaId,
           uuid: uuid.toUpperCase(),
-          rfc_emisor: rfcEmisor,
-          nombre_emisor: nombreEmisor,
-          rfc_receptor: rfcReceptor,
-          nombre_receptor: nombreReceptor,
-          total,
+          tipo: tipoMap[tipoComprobante] || "ingreso",
+          version: version,
+          emisor_rfc: rfcEmisor,
+          emisor_nombre: nombreEmisor,
+          emisor_regimen: regimenEmisor,
+          receptor_rfc: rfcReceptor,
+          receptor_nombre: nombreReceptor,
+          receptor_uso_cfdi: usoCfdi,
           subtotal,
-          fecha_emision: fecha,
+          total,
           moneda,
           tipo_cambio: tipoCambio,
-          tipo_comprobante: tipoMap[tipoComprobante] || "ingreso",
-          forma_pago: formaPago,
-          metodo_pago: metodoPago,
-          version_cfdi: version,
-          serie,
-          folio,
-          uso_cfdi: usoCfdi,
-          regimen_emisor: regimenEmisor,
-          iva_trasladado: ivaTraslado,
-          isr_retenido: isrRetencion,
-          iva_retenido: ivaRetencion,
-          xml_url: null,
+          fecha_emision: fecha,
           estado_sat: "vigente",
-          es_deducible: null,
         } as never, { onConflict: "uuid" });
 
         if (upsertError) {
