@@ -417,19 +417,26 @@ export default function EmpresaDashboardPage() {
                   }
                   setDescargandoCfdis(true);
                   try {
-                    const res = await fetch(
-                      `/api/sat/sync?empresaId=${empresaId}&fechaInicio=${satFechaInicio}&fechaFin=${satFechaFin}`
-                    );
+                    const res = await fetch("/api/sat/sync", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        empresaId,
+                        fechaInicio: satFechaInicio,
+                        fechaFin: satFechaFin,
+                        tipo: "recibidos",
+                      }),
+                    });
+                    const data = await res.json().catch(() => ({}));
                     if (res.ok) {
                       setUltimaSync(new Date().toLocaleString("es-MX"));
                       cargarDatos();
-                      alert("Descarga de CFDIs iniciada. Revisa el progreso en unos minutos.");
+                      alert("Sincronización iniciada. Job ID: " + (data.jobId || "N/A") + ". Los CFDIs aparecerán en unos minutos.");
                     } else {
-                      const data = await res.json().catch(() => ({}));
-                      alert(data.error || "Error: Verifica que la e.firma esté configurada en la empresa.");
+                      alert("Error: " + (data.error || "Verifica que la e.firma esté configurada y las tablas de sincronización existan en Supabase."));
                     }
                   } catch {
-                    alert("Error de conexión. Verifica tu e.firma en Configuración de la empresa.");
+                    alert("Error de conexión con el servidor. Intenta de nuevo.");
                   }
                   setDescargandoCfdis(false);
                 }}
