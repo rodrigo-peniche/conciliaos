@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
+// Allow larger uploads and longer execution
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -18,6 +21,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "ANTHROPIC_API_KEY no configurada" },
         { status: 500 }
+      );
+    }
+
+    // Check total size - limit to 20MB total
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > 20 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "Los archivos exceden 20MB en total. Intenta con menos archivos." },
+        { status: 400 }
       );
     }
 
@@ -73,10 +85,12 @@ Reglas:
       response.content[0].type === "text" ? response.content[0].text : "";
 
     return NextResponse.json({ objetoSocial: textoExtraido });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error extrayendo objeto social:", error);
+    const message =
+      error instanceof Error ? error.message : "Error al procesar los documentos";
     return NextResponse.json(
-      { error: "Error al procesar los documentos" },
+      { error: message },
       { status: 500 }
     );
   }
