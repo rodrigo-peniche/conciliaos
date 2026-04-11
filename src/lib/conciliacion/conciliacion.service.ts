@@ -62,10 +62,11 @@ export async function obtenerOCrearConciliacion(
     .from("conciliaciones" as never)
     .insert(insertData as never)
     .select()
-    .single()) as { data: Conciliacion | null; error: unknown };
+    .single()) as { data: Conciliacion | null; error: { message?: string; code?: string; details?: string } | null };
 
   if (error || !nueva) {
-    throw new Error("Error al crear conciliación");
+    console.error("Error creando conciliación:", JSON.stringify(error));
+    throw new Error(`Error al crear conciliación: ${error?.message || "sin datos"} (${error?.code || ""}) ${error?.details || ""}`);
   }
 
   return nueva;

@@ -1,18 +1,27 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ArrowLeftRight,
   Play,
   Loader2,
   CheckCircle2,
   Download,
+  Landmark,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { TablaMovimientos } from "@/components/conciliacion/tabla-movimientos";
 import { TablaCfdis } from "@/components/conciliacion/tabla-cfdis";
 import { PartidasConciliadas } from "@/components/conciliacion/partida-conciliada";
@@ -26,10 +35,30 @@ import type { Database } from "@/lib/types/database.types";
 type Movimiento = Database["public"]["Tables"]["movimientos_bancarios"]["Row"];
 type Cfdi = Database["public"]["Tables"]["cfdis"]["Row"];
 type Partida = Database["public"]["Tables"]["conciliacion_partidas"]["Row"];
+type CuentaBancaria = Database["public"]["Tables"]["cuentas_bancarias"]["Row"];
 
 export default function ConciliacionPage() {
   const params = useParams();
   const empresaId = params.id as string;
+  const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
+
+  // Cargar cuentas bancarias
+  useEffect(() => {
+    const cargarCuentas = async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("cuentas_bancarias")
+        .select("*")
+        .eq("empresa_id", empresaId)
+        .eq("activa", true);
+      if (data) {
+        const ctas = data as unknown as CuentaBancaria[];
+        setCuentas(ctas);
+        if (ctas.length > 0) setCuentaId(ctas[0].id);
+      }
+    };
+    cargarCuentas();
+  }, [empresaId]);
 
   // State
   const currentYear = new Date().getFullYear();
@@ -118,7 +147,7 @@ export default function ConciliacionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           empresaId,
-          cuentaId: cuentaId || empresaId, // fallback
+          cuentaId,
           periodoInicio,
           periodoFin,
         }),
@@ -257,9 +286,33 @@ export default function ConciliacionPage() {
         </div>
       </div>
 
-      {/* Selector de periodo con burbujas */}
+      {/* Selector de cuenta y periodo */}
       <Card>
         <CardContent className="pt-4 space-y-3">
+          {/* Cuenta bancaria */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <Landmark className="h-3 w-3" /> Cuenta bancaria
+            </p>
+            {cuentas.length > 0 ? (
+              <Select value={cuentaId} onValueChange={setCuentaId}>
+                <SelectTrigger className="w-full max-w-md">
+                  <SelectValue placeholder="Selecciona una cuenta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cuentas.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.banco} - {c.alias || c.numero_cuenta || c.clabe} ({c.moneda})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-xs text-muted-foreground">No hay cuentas bancarias. Agrega una en Cuentas Bancarias.</p>
+            )}
+          </div>
+          <Separator />
+          {/* Año */}
           <div className="space-y-1">
             <p className="text-xs font-medium text-muted-foreground">Año</p>
             <div className="flex flex-wrap gap-2">
@@ -298,7 +351,7 @@ export default function ConciliacionPage() {
           </div>
           <Button
             onClick={cargarDatos}
-            disabled={loading}
+            disabled={loading || !cuentaId}
             size="sm"
           >
             {loading ? (
