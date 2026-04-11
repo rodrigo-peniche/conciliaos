@@ -140,15 +140,15 @@ export async function POST(request: NextRequest) {
       let totalEncontrados = 0;
       const mensajes: string[] = [];
 
-      // Descargar AMBOS: recibidos y emitidos
-      const direcciones: Array<{ direccion: "recibido" | "emitido"; rfcEmisor?: string; rfcReceptor?: string }> = [
-        { direccion: "recibido", rfcReceptor: rfc },
-        { direccion: "emitido", rfcEmisor: rfc },
+      // Descargar AMBOS: recibidos y emitidos (SAT usa operaciones separadas)
+      const direcciones: Array<{ direccion: "recibido" | "emitido"; descargaDireccion: "recibidos" | "emitidos"; rfcEmisor?: string; rfcReceptor?: string }> = [
+        { direccion: "recibido", descargaDireccion: "recibidos", rfcReceptor: rfc },
+        { direccion: "emitido", descargaDireccion: "emitidos", rfcEmisor: rfc },
       ];
 
       for (const dir of direcciones) {
         try {
-          // Paso 2: Solicitar descarga
+          // Paso 2: Solicitar descarga (operación específica por dirección)
           const idSolicitud = await sat.solicitarDescarga({
             rfcSolicitante: rfc,
             rfcReceptor: dir.rfcReceptor,
@@ -156,6 +156,7 @@ export async function POST(request: NextRequest) {
             fechaInicio: fechaInicioDate,
             fechaFin: fechaFinDate,
             tipoSolicitud: "CFDI",
+            direccion: dir.descargaDireccion,
           });
 
           // Paso 3: Verificar (poll hasta que esté listo, max 10 intentos)

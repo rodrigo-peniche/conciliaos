@@ -16,11 +16,13 @@ const SAT_ENDPOINTS = {
   verificar:
     "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/VerificaSolicitudDescargaService.svc",
   descargar:
-    "https://cfdidescargamasaborrecepcion.clouda.sat.gob.mx/DescargarSolicitudService.svc",
+    "https://cfdidescargamasiva.clouda.sat.gob.mx/DescargaMasivaService.svc",
 } as const;
 
 export type TipoSolicitud = "CFDI" | "Metadata";
 export type TipoComprobante = "I" | "E" | "T" | "P" | "N";
+
+export type DireccionDescarga = "emitidos" | "recibidos";
 
 export interface SolicitudDescargaParams {
   rfcSolicitante: string;
@@ -30,6 +32,7 @@ export interface SolicitudDescargaParams {
   fechaFin: Date;
   tipoSolicitud: TipoSolicitud;
   tipoComprobante?: TipoComprobante;
+  direccion: DireccionDescarga;
 }
 
 export interface VerificacionResult {
@@ -255,10 +258,19 @@ export class SATDescargaMasiva {
     const fechaInicio = params.fechaInicio.toISOString().replace(/\.\d{3}Z$/, "");
     const fechaFin = params.fechaFin.toISOString().replace(/\.\d{3}Z$/, "");
 
+    // SAT tiene operaciones separadas para emitidos y recibidos
+    const esEmitidos = params.direccion === "emitidos";
+    const operacion = esEmitidos ? "SolicitaDescargaEmitidos" : "SolicitaDescargaRecibidos";
+
     // Construir atributos de la solicitud
     let solicitudAttrs = `FechaFinal="${fechaFin}" FechaInicial="${fechaInicio}" RfcSolicitante="${params.rfcSolicitante}" TipoSolicitud="${params.tipoSolicitud}"`;
     if (params.rfcEmisor) solicitudAttrs += ` RfcEmisor="${params.rfcEmisor}"`;
-    if (params.rfcReceptor) solicitudAttrs += ` RfcReceptor="${params.rfcReceptor}"`;
+    if (esEmitidos) {
+      // Emitidos usa RfcReceptores (no RfcReceptor)
+      // Si no hay receptor específico, no agregar
+    } else {
+      if (params.rfcReceptor) solicitudAttrs += ` RfcReceptor="${params.rfcReceptor}"`;
+    }
     if (params.tipoComprobante) solicitudAttrs += ` TipoComprobante="${params.tipoComprobante}"`;
 
     // Firmar el nodo solicitud
@@ -282,7 +294,7 @@ export class SATDescargaMasiva {
       `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">` +
       `<s:Header/>` +
       `<s:Body>` +
-      `<des:SolicitaDescarga>` +
+      `<des:${operacion}>` +
       `<des:solicitud ${solicitudAttrs}>` +
       `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` +
       `${signedInfoXml}` +
@@ -292,7 +304,7 @@ export class SATDescargaMasiva {
       `</KeyInfo>` +
       `</Signature>` +
       `</des:solicitud>` +
-      `</des:SolicitaDescarga>` +
+      `</des:${operacion}>` +
       `</s:Body>` +
       `</s:Envelope>`;
 
@@ -300,7 +312,7 @@ export class SATDescargaMasiva {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescarga",
+        SOAPAction: `http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/${operacion}`,
         Authorization: `WRAP access_token="${token}"`,
       },
       body: soapEnvelope,
@@ -455,7 +467,7 @@ export class SATDescargaMasiva {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/IDescargarSolicitudService/Descargar",
+        SOAPAction: "http://DescargaMasivaTerceros.sat.gob.mx/IDescargaMasivaTercerosService/Descargar",
         Authorization: `WRAP access_token="${token}"`,
       },
       body: soapEnvelope,
