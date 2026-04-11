@@ -49,13 +49,12 @@ export async function obtenerOCrearConciliacion(
 
   if (existente) return existente;
 
-  // Crear nueva
+  // Crear nueva (no enviar created_by si hay FK a tabla inexistente)
   const insertData: ConciliacionInsert = {
     empresa_id: empresaId,
     cuenta_id: cuentaId,
     periodo_inicio: periodoInicio,
     periodo_fin: periodoFin,
-    created_by: userId,
   };
 
   const { data: nueva, error } = (await supabase

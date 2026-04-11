@@ -297,7 +297,12 @@ export default function ConciliacionPage() {
             {cuentas.length > 0 ? (
               <Select value={cuentaId} onValueChange={setCuentaId}>
                 <SelectTrigger className="w-full max-w-md">
-                  <SelectValue placeholder="Selecciona una cuenta" />
+                  <SelectValue placeholder="Selecciona una cuenta">
+                    {(() => {
+                      const sel = cuentas.find(c => c.id === cuentaId);
+                      return sel ? `${sel.banco} - ${sel.alias || sel.numero_cuenta || sel.clabe} (${sel.moneda})` : "Selecciona una cuenta";
+                    })()}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {cuentas.map((c) => (
