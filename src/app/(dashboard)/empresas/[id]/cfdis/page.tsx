@@ -63,6 +63,18 @@ export default function CfdisPage() {
   );
   const [ordenAsc, setOrdenAsc] = useState(false);
 
+  // Year/month bubbles
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth();
+  const [selYear, setSelYear] = useState(currentYear);
+  const [selMonth, setSelMonth] = useState(currentMonth);
+  const YEARS = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3];
+  const MONTHS_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+  const periodoInicio = `${selYear}-${String(selMonth + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(selYear, selMonth + 1, 0).getDate();
+  const periodoFin = `${selYear}-${String(selMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
   // Cargar CFDIs
   useEffect(() => {
     const cargar = async () => {
@@ -72,6 +84,8 @@ export default function CfdisPage() {
         .from("cfdis")
         .select("*")
         .eq("empresa_id", empresaId)
+        .gte("fecha_emision", periodoInicio)
+        .lte("fecha_emision", periodoFin)
         .order("fecha_emision", { ascending: false })
         .limit(500);
 
@@ -82,7 +96,7 @@ export default function CfdisPage() {
       setLoading(false);
     };
     cargar();
-  }, [empresaId]);
+  }, [empresaId, periodoInicio, periodoFin]);
 
   // Upload XMLs
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,6 +128,8 @@ export default function CfdisPage() {
         .from("cfdis")
         .select("*")
         .eq("empresa_id", empresaId)
+        .gte("fecha_emision", periodoInicio)
+        .lte("fecha_emision", periodoFin)
         .order("fecha_emision", { ascending: false })
         .limit(500);
       setCfdis((refreshed as unknown as Cfdi[]) || []);
@@ -240,6 +256,48 @@ export default function CfdisPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Periodo: Año y Mes */}
+      <Card>
+        <CardContent className="pt-4 space-y-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Año</p>
+            <div className="flex flex-wrap gap-2">
+              {YEARS.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => setSelYear(year)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    selYear === year
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 border hover:bg-blue-50 dark:hover:bg-blue-950"
+                  }`}
+                >
+                  {year}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Mes</p>
+            <div className="flex flex-wrap gap-1.5">
+              {MONTHS_LABELS.map((mes, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setSelMonth(idx)}
+                  className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    selMonth === idx
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 border hover:bg-blue-50 dark:hover:bg-blue-950"
+                  }`}
+                >
+                  {mes}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Resumen */}
       {cfdis.length > 0 && (
