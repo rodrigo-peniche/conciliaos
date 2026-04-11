@@ -91,7 +91,7 @@ export function Sidebar() {
   const { empresaActual } = useEmpresaStore();
 
   const empresaBase = empresaActual
-    ? `//empresas/${empresaActual.id}`
+    ? `/empresas/${empresaActual.id}`
     : null;
 
   return (

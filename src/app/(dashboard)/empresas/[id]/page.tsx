@@ -143,7 +143,7 @@ function EmpresaStatusBar({ estado }: { estado: { color: "green" | "yellow" | "r
 export default function EmpresaDashboardPage() {
   const params = useParams();
   const empresaId = params.id as string;
-  const { empresaActual } = useEmpresaStore();
+  const { empresaActual, setEmpresaActual } = useEmpresaStore();
 
   const [kpi, setKpi] = useState<KpiData>(DEFAULT_KPI);
   const [checkeos, setCheckeos] = useState<CheckeoFiscal[]>([]);
@@ -186,7 +186,11 @@ export default function EmpresaDashboardPage() {
         console.error("Error cargando empresa:", empError);
         setLoadError(`Error cargando empresa: ${(empError as { message?: string }).message}`);
       } else {
-        setEmpresaData(empData as unknown as Empresa);
+        const emp = empData as unknown as Empresa;
+        setEmpresaData(emp);
+        if (!empresaActual || empresaActual.id !== emp.id) {
+          setEmpresaActual(emp);
+        }
       }
 
       // Cargar CFDIs directamente de Supabase
