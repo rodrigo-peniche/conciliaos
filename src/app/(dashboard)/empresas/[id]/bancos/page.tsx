@@ -30,6 +30,7 @@ import {
   FileUp,
   Landmark,
   Calendar,
+  Loader2,
 } from "lucide-react";
 import type { Database } from "@/lib/types/database.types";
 import * as XLSX from "xlsx";
@@ -208,12 +209,80 @@ export default function BancosPage() {
     }
   };
 
+  const [pdfProcessing, setPdfProcessing] = useState(false);
+  const [pdfResult, setPdfResult] = useState<string | null>(null);
+
   const handlePdfUpload = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       alert("Solo se aceptan archivos PDF.");
       return;
     }
-    alert(`Archivo "${file.name}" recibido. El procesamiento de PDFs bancarios estara disponible proximamente.`);
+    if (!cuentaSeleccionada) {
+      alert("Selecciona una cuenta bancaria primero.");
+      return;
+    }
+
+    setPdfProcessing(true);
+    setPdfResult(null);
+
+    try {
+      const cuentaSel = cuentas.find(c => c.id === cuentaSeleccionada);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("cuentaId", cuentaSeleccionada);
+      formData.append("empresaId", empresaId);
+      if (cuentaSel?.tipo) formData.append("tipoCuenta", cuentaSel.alias || cuentaSel.tipo);
+
+      const res = await fetch("/api/bancos/extracto", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setPdfResult(`Error: ${data.error}`);
+        setPdfProcessing(false);
+        return;
+      }
+
+      if (!data.movimientos || data.movimientos.length === 0) {
+        setPdfResult("No se encontraron movimientos en el PDF.");
+        setPdfProcessing(false);
+        return;
+      }
+
+      // Insertar movimientos en Supabase
+      const inserts = data.movimientos.map((m: { fecha: string; referencia: string; descripcion: string; cargo: number; abono: number; saldo: number | null }) => {
+        const importe = m.abono > 0 ? m.abono : -m.cargo;
+        const tipo = m.abono > 0 ? "abono" : "cargo";
+        return {
+          cuenta_id: cuentaSeleccionada,
+          empresa_id: empresaId,
+          fecha: m.fecha,
+          referencia: m.referencia || "",
+          descripcion: m.descripcion || "",
+          importe,
+          tipo,
+          saldo: m.saldo,
+        };
+      });
+
+      const { error: insertError } = await supabase
+        .from("movimientos_bancarios" as never)
+        .insert(inserts as never);
+
+      if (insertError) {
+        setPdfResult(`Error al guardar: ${insertError.message}`);
+      } else {
+        setPdfResult(`${data.total} movimientos importados de ${data.banco || "estado de cuenta"} (${data.periodo || ""}).`);
+        cargarMovimientos();
+      }
+    } catch (err) {
+      console.error("Error procesando PDF:", err);
+      setPdfResult("Error al procesar el PDF. Intenta de nuevo.");
+    }
+    setPdfProcessing(false);
   };
 
   const formatMoney = (amount: number) => {
@@ -246,7 +315,12 @@ export default function BancosPage() {
           <CardContent>
             <Select value={cuentaSeleccionada} onValueChange={(v) => setCuentaSeleccionada(v ?? "")}>
               <SelectTrigger className="w-full max-w-md">
-                <SelectValue placeholder="Selecciona una cuenta" />
+                <SelectValue placeholder="Selecciona una cuenta">
+                  {(() => {
+                    const sel = cuentas.find(c => c.id === cuentaSeleccionada);
+                    return sel ? `${sel.banco} - ${sel.alias || sel.numero_cuenta || sel.clabe} (${sel.moneda})` : "Selecciona una cuenta";
+                  })()}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {cuentas.map((c) => (
@@ -270,20 +344,35 @@ export default function BancosPage() {
               Arrastra un PDF de estado de cuenta bancario para procesarlo automaticamente.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <div
               className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                pdfProcessing ? "border-blue-500 bg-blue-50 dark:bg-blue-950" :
                 dragOver ? "border-blue-500 bg-blue-50 dark:bg-blue-950" : "border-muted-foreground/25"
               }`}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handlePdfDrop}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => !pdfProcessing && fileInputRef.current?.click()}
             >
-              <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">
-                Arrastra un archivo PDF aqui o haz clic para seleccionar
-              </p>
+              {pdfProcessing ? (
+                <>
+                  <Loader2 className="mx-auto h-10 w-10 text-blue-600 mb-3 animate-spin" />
+                  <p className="text-sm font-medium text-blue-700">
+                    Procesando estado de cuenta con IA...
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Esto puede tomar unos segundos
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">
+                    Arrastra un archivo PDF aqui o haz clic para seleccionar
+                  </p>
+                </>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -294,6 +383,13 @@ export default function BancosPage() {
                 }}
               />
             </div>
+            {pdfResult && (
+              <div className={`rounded-lg p-3 text-sm ${
+                pdfResult.startsWith("Error") ? "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" : "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"
+              }`}>
+                {pdfResult}
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     .eq("id", empresaId)
     .single()) as { data: Empresa | null };
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.CONCILIAOS_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     // Fallback sin API key

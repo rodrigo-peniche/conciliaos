@@ -96,7 +96,7 @@ FORMATO: Genera el contrato en HTML semántico con estilos inline para PDF.
 export async function generarContrato(
   datos: DatosContrato
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.CONCILIAOS_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     return generarContratoFallback(datos);

@@ -55,7 +55,7 @@ export async function analizarConIA(
   cfdi: Cfdi,
   empresa: Empresa
 ): Promise<AnalisisIA> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.CONCILIAOS_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     // Fallback si no hay API key configurada
