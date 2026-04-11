@@ -313,7 +313,7 @@ export default function ConciliacionPage() {
               <Landmark className="h-3 w-3" /> Cuenta bancaria
             </p>
             {cuentas.length > 0 ? (
-              <Select value={cuentaId} onValueChange={setCuentaId}>
+              <Select value={cuentaId} onValueChange={(v) => setCuentaId(v ?? "")}>
                 <SelectTrigger className="w-full max-w-md">
                   <SelectValue placeholder="Selecciona una cuenta">
                     {(() => {

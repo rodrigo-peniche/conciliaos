@@ -183,7 +183,7 @@ export default function CuentasBancariasPage() {
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
+          <DialogTrigger>
             <Button onClick={openNew}>
               <Plus className="mr-2 h-4 w-4" />
               Agregar cuenta
@@ -199,7 +199,7 @@ export default function CuentasBancariasPage() {
             <div className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label>Banco *</Label>
-                <Select value={banco} onValueChange={setBanco}>
+                <Select value={banco} onValueChange={(v) => setBanco(v ?? "")}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona un banco" />
                   </SelectTrigger>
@@ -227,7 +227,7 @@ export default function CuentasBancariasPage() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Moneda</Label>
-                  <Select value={moneda} onValueChange={setMoneda}>
+                  <Select value={moneda} onValueChange={(v) => setMoneda(v ?? "MXN")}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -240,7 +240,7 @@ export default function CuentasBancariasPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Tipo</Label>
-                  <Select value={tipo} onValueChange={setTipo}>
+                  <Select value={tipo} onValueChange={(v) => setTipo(v ?? "cheques")}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
