@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,31 +115,44 @@ export default function ConciliacionPage() {
     totalMovimientos > 0 ? Math.round((conciliados / totalMovimientos) * 100) : 0;
 
   // Cargar datos del periodo
-  const cargarDatos = useCallback(async () => {
-    if (!periodoInicio || !periodoFin) return;
+  const cargarDatos = async () => {
+    console.log("cargarDatos llamado", { cuentaId, periodoInicio, periodoFin, empresaId });
+    if (!cuentaId) {
+      alert("Selecciona una cuenta bancaria.");
+      return;
+    }
     setLoading(true);
     try {
-      const params = new URLSearchParams({
+      const qp = new URLSearchParams({
         empresaId,
-        ...(cuentaId && { cuentaId }),
+        cuentaId,
         periodoInicio,
         periodoFin,
       });
-      const res = await fetch(`/api/conciliacion?${params}`);
+      const res = await fetch(`/api/conciliacion?${qp}`);
       const data = await res.json();
-      setMovimientos(data.movimientos || []);
-      setCfdis(data.cfdis || []);
-      setPartidas(data.partidas || []);
+      if (data.error) {
+        console.error("Error:", data.error);
+        alert("Error: " + data.error);
+      } else {
+        setMovimientos(data.movimientos || []);
+        setCfdis(data.cfdis || []);
+        setPartidas(data.partidas || []);
+      }
     } catch (err) {
       console.error("Error cargando datos:", err);
+      alert("Error de conexión.");
     } finally {
       setLoading(false);
     }
-  }, [empresaId, cuentaId, periodoInicio, periodoFin]);
+  };
 
   // Ejecutar auto-matching
   const ejecutarAutoMatch = async () => {
-    if (!periodoInicio || !periodoFin) return;
+    if (!cuentaId) {
+      alert("Selecciona una cuenta bancaria.");
+      return;
+    }
     setAutoMatchLoading(true);
     try {
       const res = await fetch("/api/conciliacion", {
@@ -153,13 +166,18 @@ export default function ConciliacionPage() {
         }),
       });
       const data = await res.json();
-      if (data.conciliacionId) {
-        setConciliacionId(data.conciliacionId);
+      if (data.error) {
+        alert("Error: " + data.error);
+      } else {
+        if (data.conciliacionId) {
+          setConciliacionId(data.conciliacionId);
+        }
+        // Recargar datos
+        await cargarDatos();
       }
-      // Recargar datos
-      await cargarDatos();
     } catch (err) {
       console.error("Error en auto-match:", err);
+      alert("Error de conexión.");
     } finally {
       setAutoMatchLoading(false);
     }
