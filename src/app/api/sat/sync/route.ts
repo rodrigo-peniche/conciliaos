@@ -132,124 +132,120 @@ export async function POST(request: NextRequest) {
       await updateJob(supabase, jobId, { estado: "ejecutando" });
       await sat.autenticar();
 
-      // Paso 2: Solicitar descarga
       const fechaInicioDate = new Date(fechaInicio + "T00:00:00");
       const fechaFinDate = new Date(fechaFin + "T23:59:59");
 
-      const idSolicitud = await sat.solicitarDescarga({
-        rfcSolicitante: rfc,
-        rfcReceptor: tipo === "emitidos" ? undefined : rfc,
-        rfcEmisor: tipo === "emitidos" ? rfc : undefined,
-        fechaInicio: fechaInicioDate,
-        fechaFin: fechaFinDate,
-        tipoSolicitud: "CFDI",
-      });
-
-      // Paso 3: Verificar (poll hasta que esté listo, max 10 intentos)
-      let verificacion: Awaited<ReturnType<typeof sat.verificarSolicitud>> | null = null;
-      for (let i = 0; i < 10; i++) {
-        await sleep(3000); // Esperar 3 segundos entre verificaciones
-        verificacion = await sat.verificarSolicitud(idSolicitud);
-
-        if (verificacion.estadoSolicitud === "3") {
-          // Terminada - listo para descargar
-          break;
-        } else if (verificacion.estadoSolicitud === "4" || verificacion.estadoSolicitud === "5") {
-          // Error o Rechazada
-          throw new Error(`SAT rechazó/error en solicitud: ${verificacion.mensaje} (estado: ${verificacion.estadoSolicitud})`);
-        }
-        // 1=Aceptada 2=EnProceso - seguir esperando
-      }
-
-      if (!verificacion || verificacion.estadoSolicitud !== "3") {
-        // No terminó en el tiempo de espera, guardar el job para seguimiento
-        await updateJob(supabase, jobId, {
-          estado: "ejecutando",
-          error_detalle: `Solicitud aún en proceso (${verificacion?.estadoSolicitud}). IdSolicitud: ${idSolicitud}. Verificar manualmente.`,
-          total_encontrados: verificacion?.numeroCFDIs || 0,
-        });
-
-        return NextResponse.json({
-          jobId,
-          estado: "en_proceso",
-          idSolicitud,
-          mensaje: `La solicitud está siendo procesada por el SAT (${verificacion?.numeroCFDIs || 0} CFDIs encontrados). El SAT puede tardar minutos u horas. Intenta de nuevo más tarde.`,
-          numeroCFDIs: verificacion?.numeroCFDIs || 0,
-        });
-      }
-
-      // Paso 4: Descargar paquetes y procesar XMLs
       let totalDescargados = 0;
       let totalErrores = 0;
+      let totalEncontrados = 0;
+      const mensajes: string[] = [];
 
-      await updateJob(supabase, jobId, {
-        total_encontrados: verificacion.numeroCFDIs,
-      });
+      // Descargar AMBOS: recibidos y emitidos
+      const direcciones: Array<{ direccion: "recibido" | "emitido"; rfcEmisor?: string; rfcReceptor?: string }> = [
+        { direccion: "recibido", rfcReceptor: rfc },
+        { direccion: "emitido", rfcEmisor: rfc },
+      ];
 
-      for (const idPaquete of verificacion.paquetes) {
+      for (const dir of direcciones) {
         try {
-          const zipBuffer = await sat.descargarPaquete(idPaquete);
+          // Paso 2: Solicitar descarga
+          const idSolicitud = await sat.solicitarDescarga({
+            rfcSolicitante: rfc,
+            rfcReceptor: dir.rfcReceptor,
+            rfcEmisor: dir.rfcEmisor,
+            fechaInicio: fechaInicioDate,
+            fechaFin: fechaFinDate,
+            tipoSolicitud: "CFDI",
+          });
 
-          // Descomprimir ZIP
-          const zip = await JSZip.loadAsync(zipBuffer);
-          const xmlFiles = Object.keys(zip.files).filter(name => name.toLowerCase().endsWith(".xml"));
+          // Paso 3: Verificar (poll hasta que esté listo, max 10 intentos)
+          let verificacion: Awaited<ReturnType<typeof sat.verificarSolicitud>> | null = null;
+          for (let i = 0; i < 10; i++) {
+            await sleep(3000);
+            verificacion = await sat.verificarSolicitud(idSolicitud);
 
-          for (const xmlName of xmlFiles) {
+            if (verificacion.estadoSolicitud === "3") break;
+            if (verificacion.estadoSolicitud === "4" || verificacion.estadoSolicitud === "5") {
+              throw new Error(`SAT error ${dir.direccion}: ${verificacion.mensaje}`);
+            }
+          }
+
+          if (!verificacion || verificacion.estadoSolicitud !== "3") {
+            mensajes.push(`${dir.direccion}: aún en proceso (${verificacion?.numeroCFDIs || 0} encontrados)`);
+            continue;
+          }
+
+          totalEncontrados += verificacion.numeroCFDIs;
+
+          // Paso 4: Descargar paquetes y procesar XMLs
+          for (const idPaquete of verificacion.paquetes) {
             try {
-              const xmlContent = await zip.files[xmlName].async("string");
-              const parsed = await parseCfdiXml(xmlContent);
+              const zipBuffer = await sat.descargarPaquete(idPaquete);
+              const zip = await JSZip.loadAsync(zipBuffer);
+              const xmlFiles = Object.keys(zip.files).filter(name => name.toLowerCase().endsWith(".xml"));
 
-              if (!parsed.cfdi.uuid) continue;
+              for (const xmlName of xmlFiles) {
+                try {
+                  const xmlContent = await zip.files[xmlName].async("string");
+                  const parsed = await parseCfdiXml(xmlContent);
+                  if (!parsed.cfdi.uuid) continue;
 
-              // Upsert CFDI
-              const { error: upsertError } = await supabase.from("cfdis").upsert({
-                empresa_id: empresaId,
-                uuid: parsed.cfdi.uuid.toUpperCase(),
-                tipo: parsed.cfdi.tipo,
-                version: parsed.cfdi.version,
-                emisor_rfc: parsed.cfdi.emisor_rfc,
-                emisor_nombre: parsed.cfdi.emisor_nombre,
-                emisor_regimen: parsed.cfdi.emisor_regimen,
-                receptor_rfc: parsed.cfdi.receptor_rfc,
-                receptor_nombre: parsed.cfdi.receptor_nombre,
-                receptor_uso_cfdi: parsed.cfdi.receptor_uso_cfdi,
-                subtotal: parsed.cfdi.subtotal,
-                total: parsed.cfdi.total,
-                moneda: parsed.cfdi.moneda,
-                tipo_cambio: parsed.cfdi.tipo_cambio,
-                fecha_emision: parsed.cfdi.fecha_emision,
-                estado_sat: "vigente",
-                direccion: tipo === "emitidos" ? "emitido" : "recibido",
-                xml_raw: xmlContent.length < 50000 ? xmlContent : null, // Solo guardar si < 50KB
-              } as never, { onConflict: "uuid" });
+                  const { error: upsertError } = await supabase.from("cfdis").upsert({
+                    empresa_id: empresaId,
+                    uuid: parsed.cfdi.uuid.toUpperCase(),
+                    tipo: parsed.cfdi.tipo,
+                    version: parsed.cfdi.version,
+                    emisor_rfc: parsed.cfdi.emisor_rfc,
+                    emisor_nombre: parsed.cfdi.emisor_nombre,
+                    emisor_regimen: parsed.cfdi.emisor_regimen,
+                    receptor_rfc: parsed.cfdi.receptor_rfc,
+                    receptor_nombre: parsed.cfdi.receptor_nombre,
+                    receptor_uso_cfdi: parsed.cfdi.receptor_uso_cfdi,
+                    subtotal: parsed.cfdi.subtotal,
+                    total: parsed.cfdi.total,
+                    moneda: parsed.cfdi.moneda,
+                    tipo_cambio: parsed.cfdi.tipo_cambio,
+                    fecha_emision: parsed.cfdi.fecha_emision,
+                    estado_sat: "vigente",
+                    direccion: dir.direccion,
+                    xml_raw: xmlContent.length < 50000 ? xmlContent : null,
+                  } as never, { onConflict: "uuid" });
 
-              if (upsertError) {
-                console.error(`Error upsert CFDI ${xmlName}:`, upsertError);
-                totalErrores++;
-              } else {
-                totalDescargados++;
+                  if (upsertError) {
+                    console.error(`Error upsert CFDI ${xmlName}:`, upsertError);
+                    totalErrores++;
+                  } else {
+                    totalDescargados++;
+                  }
+                } catch (parseErr) {
+                  console.error(`Error parsing ${xmlName}:`, parseErr);
+                  totalErrores++;
+                }
               }
-            } catch (parseErr) {
-              console.error(`Error parsing XML ${xmlName}:`, parseErr);
+            } catch (pkgErr) {
+              console.error(`Error paquete ${idPaquete}:`, pkgErr);
               totalErrores++;
             }
           }
-        } catch (pkgErr) {
-          console.error(`Error descargando paquete ${idPaquete}:`, pkgErr);
-          totalErrores++;
+
+          mensajes.push(`${dir.direccion}: ${verificacion.numeroCFDIs} encontrados`);
+        } catch (dirErr) {
+          const msg = dirErr instanceof Error ? dirErr.message : "Error desconocido";
+          mensajes.push(`${dir.direccion}: error - ${msg}`);
+          console.error(`Error descargando ${dir.direccion}:`, dirErr);
         }
       }
 
       // Actualizar job como completado
       await updateJob(supabase, jobId, {
         estado: "completado",
-        total_encontrados: verificacion.numeroCFDIs,
+        total_encontrados: totalEncontrados,
         total_descargados: totalDescargados,
         total_errores: totalErrores,
         finished_at: new Date().toISOString(),
       });
 
-      // Actualizar fecha de sincronización en empresa
+      // Actualizar fecha de sincronización
       await supabase
         .from("empresas")
         .update({ sat_sincronizado_at: new Date().toISOString() } as never)
@@ -258,11 +254,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         jobId,
         estado: "completado",
-        totalEncontrados: verificacion.numeroCFDIs,
+        totalEncontrados,
         totalDescargados,
         totalErrores,
-        paquetes: verificacion.paquetes.length,
-        mensaje: `Descarga completada: ${totalDescargados} CFDIs procesados${totalErrores > 0 ? `, ${totalErrores} errores` : ""}.`,
+        detalle: mensajes,
+        mensaje: `Descarga completada: ${totalDescargados} CFDIs procesados (${mensajes.join(", ")})${totalErrores > 0 ? `. ${totalErrores} errores.` : "."}`,
       });
 
     } catch (satErr) {
