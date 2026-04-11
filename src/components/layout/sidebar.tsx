@@ -79,6 +79,11 @@ const NAV_EMPRESA = [
     href: "/chat",
     icon: MessageSquare,
   },
+  {
+    label: "Configuración",
+    href: "/configuracion",
+    icon: Settings,
+  },
 ];
 
 export function Sidebar() {

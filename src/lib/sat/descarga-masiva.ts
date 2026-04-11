@@ -256,27 +256,22 @@ export class SATDescargaMasiva {
     const fechaFin = params.fechaFin.toISOString().replace(/\.\d{3}Z$/, "");
 
     // Construir atributos de la solicitud
-    let solicitudAttrs = `RfcSolicitante="${params.rfcSolicitante}" FechaInicial="${fechaInicio}" FechaFinal="${fechaFin}" TipoSolicitud="${params.tipoSolicitud}"`;
+    let solicitudAttrs = `FechaFinal="${fechaFin}" FechaInicial="${fechaInicio}" RfcSolicitante="${params.rfcSolicitante}" TipoSolicitud="${params.tipoSolicitud}"`;
     if (params.rfcEmisor) solicitudAttrs += ` RfcEmisor="${params.rfcEmisor}"`;
     if (params.rfcReceptor) solicitudAttrs += ` RfcReceptor="${params.rfcReceptor}"`;
     if (params.tipoComprobante) solicitudAttrs += ` TipoComprobante="${params.tipoComprobante}"`;
 
-    // Contenido a firmar: el nodo solicitud
-    const solicitudXml =
-      `<des:SolicitaDescarga xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
-      `<des:solicitud ${solicitudAttrs}></des:solicitud>` +
-      `</des:SolicitaDescarga>`;
+    // Firmar el nodo solicitud
+    const solicitudToSign = `<des:solicitud xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" ${solicitudAttrs}></des:solicitud>`;
+    const digestValue = this.digestSha1(solicitudToSign);
 
-    const digestValue = this.digestSha1(solicitudXml);
     const signedInfoXml =
       `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
-      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
-      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>` +
       `<Reference URI="">` +
-      `<Transforms>` +
-      `<Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform>` +
-      `</Transforms>` +
-      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>` +
       `<DigestValue>${digestValue}</DigestValue>` +
       `</Reference>` +
       `</SignedInfo>`;
@@ -347,20 +342,16 @@ export class SATDescargaMasiva {
   async verificarSolicitud(idSolicitud: string): Promise<VerificacionResult> {
     const token = await this.getToken();
 
-    // Firmar la verificación
-    const verificaXml =
-      `<des:VerificaSolicitudDescarga xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
-      `<des:solicitud IdSolicitud="${idSolicitud}" RfcSolicitante="${this.rfc}"></des:solicitud>` +
-      `</des:VerificaSolicitudDescarga>`;
+    const solicitudToSign = `<des:solicitud xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" IdSolicitud="${idSolicitud}" RfcSolicitante="${this.rfc}"></des:solicitud>`;
+    const digestValue = this.digestSha1(solicitudToSign);
 
-    const digestValue = this.digestSha1(verificaXml);
     const signedInfoXml =
       `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
-      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
-      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>` +
       `<Reference URI="">` +
-      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform></Transforms>` +
-      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>` +
       `<DigestValue>${digestValue}</DigestValue>` +
       `</Reference>` +
       `</SignedInfo>`;
@@ -425,19 +416,17 @@ export class SATDescargaMasiva {
   async descargarPaquete(idPaquete: string): Promise<Buffer> {
     const token = await this.getToken();
 
-    const descargaXml =
-      `<des:PeticionDescargaMasivaTercerosEntrada xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
-      `<des:peticionDescarga IdPaquete="${idPaquete}" RfcSolicitante="${this.rfc}"></des:peticionDescarga>` +
-      `</des:PeticionDescargaMasivaTercerosEntrada>`;
+    // Firmar el nodo peticionDescarga (mismo enfoque que solicitud/verificación)
+    const peticionToSign = `<des:peticionDescarga xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" IdPaquete="${idPaquete}" RfcSolicitante="${this.rfc}"></des:peticionDescarga>`;
+    const digestValue = this.digestSha1(peticionToSign);
 
-    const digestValue = this.digestSha1(descargaXml);
     const signedInfoXml =
       `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
-      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>` +
-      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
+      `<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>` +
+      `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>` +
       `<Reference URI="">` +
-      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform></Transforms>` +
-      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
+      `<Transforms><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></Transforms>` +
+      `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>` +
       `<DigestValue>${digestValue}</DigestValue>` +
       `</Reference>` +
       `</SignedInfo>`;
@@ -445,7 +434,7 @@ export class SATDescargaMasiva {
     const signatureValue = this.signSha1(signedInfoXml);
 
     const soapEnvelope =
-      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx">` +
+      `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:des="http://DescargaMasivaTerceros.sat.gob.mx" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">` +
       `<s:Header/>` +
       `<s:Body>` +
       `<des:PeticionDescargaMasivaTercerosEntrada>` +
@@ -495,10 +484,15 @@ export class SATDescargaMasiva {
 // --- Utilidades ---
 
 function extractXmlValue(xml: string, tagName: string): string | null {
-  // Match both with and without namespace prefix
-  const regex = new RegExp(`<(?:[^:]+:)?${tagName}[^>]*>([^<]*)<`, "i");
-  const match = xml.match(regex);
-  return match ? match[1] : null;
+  // First try as element content (with or without namespace prefix)
+  const elemRegex = new RegExp(`<(?:[^:]+:)?${tagName}[^>]*>([^<]+)<`, "i");
+  const elemMatch = xml.match(elemRegex);
+  if (elemMatch) return elemMatch[1];
+
+  // Then try as attribute value (e.g., IdSolicitud="xxx")
+  const attrRegex = new RegExp(`${tagName}="([^"]*)"`, "i");
+  const attrMatch = xml.match(attrRegex);
+  return attrMatch ? attrMatch[1] : null;
 }
 
 // --- Errores tipados ---

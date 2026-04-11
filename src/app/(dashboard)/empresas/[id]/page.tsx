@@ -26,9 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, FileText, RefreshCw, Calendar, CheckCircle2, Upload, FolderUp, AlertTriangle, XCircle, ChevronDown, ChevronUp, Search, KeyRound, ShieldCheck, Loader2 } from "lucide-react";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
+import { Download, FileText, RefreshCw, CheckCircle2, Upload, FolderUp, AlertTriangle, XCircle, ChevronDown, ChevronUp, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { formatMXN } from "@/lib/utils/currency";
 import type { Database } from "@/lib/types/database.types";
@@ -155,24 +153,15 @@ export default function EmpresaDashboardPage() {
   const [cfdisRecientes, setCfdisRecientes] = useState<Cfdi[]>([]);
   const [empresaData, setEmpresaData] = useState<Empresa | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [satFechaInicio, setSatFechaInicio] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [satFechaFin, setSatFechaFin] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth(); // 0-indexed
+  const [satYear, setSatYear] = useState(currentYear);
+  const [satMonth, setSatMonth] = useState(currentMonth);
+  const YEARS = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3];
+  const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
   const [descargandoCfdis, setDescargandoCfdis] = useState(false);
   const [descargandoDeclaraciones] = useState(false);
   const [ultimaSync, setUltimaSync] = useState<string | null>(null);
-
-  // FIEL config
-  const [fielCerFile, setFielCerFile] = useState<File | null>(null);
-  const [fielKeyFile, setFielKeyFile] = useState<File | null>(null);
-  const [fielPassword, setFielPassword] = useState("");
-  const [fielUploading, setFielUploading] = useState(false);
-  const [fielResult, setFielResult] = useState<string | null>(null);
 
   // Tabla CFDIs
   const [showCfdisTable, setShowCfdisTable] = useState(false);
@@ -445,40 +434,6 @@ export default function EmpresaDashboardPage() {
     cargarDatos();
   };
 
-  const handleFielUpload = async () => {
-    if (!fielCerFile && !fielKeyFile && !fielPassword) {
-      setFielResult("Selecciona al menos un archivo o ingresa la contraseña.");
-      return;
-    }
-    setFielUploading(true);
-    setFielResult(null);
-    try {
-      const formData = new FormData();
-      formData.append("empresaId", empresaId);
-      if (fielCerFile) formData.append("cer", fielCerFile);
-      if (fielKeyFile) formData.append("key", fielKeyFile);
-      if (fielPassword) formData.append("password", fielPassword);
-
-      const res = await fetch("/api/sat/fiel/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setFielResult("e.firma configurada exitosamente.");
-        setFielCerFile(null);
-        setFielKeyFile(null);
-        setFielPassword("");
-        cargarDatos(); // Recargar para actualizar semáforo
-      } else {
-        setFielResult(`Error: ${data.error}`);
-      }
-    } catch {
-      setFielResult("Error de conexión. Intenta de nuevo.");
-    }
-    setFielUploading(false);
-  };
-
   // Filtrar CFDIs para la tabla
   const filteredCfdis = allCfdis.filter(c => {
     if (!cfdisFilter) return true;
@@ -623,68 +578,79 @@ export default function EmpresaDashboardPage() {
           <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 p-4 space-y-3">
             <p className="text-sm font-semibold flex items-center gap-2">
               <Download className="h-4 w-4 text-blue-600" />
-              Descarga automática del SAT (con e.firma)
+              Descarga automática del SAT (emitidos y recibidos)
             </p>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  Fecha inicio
-                </label>
-                <Input
-                  type="date"
-                  value={satFechaInicio}
-                  onChange={(e) => setSatFechaInicio(e.target.value)}
-                  className="w-[160px] h-8 text-sm"
-                />
+
+            {/* Año */}
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Año</p>
+              <div className="flex flex-wrap gap-2">
+                {YEARS.map((year) => (
+                  <button
+                    key={year}
+                    onClick={() => setSatYear(year)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      satYear === year
+                        ? "bg-blue-600 text-white"
+                        : "bg-white dark:bg-gray-800 border hover:bg-blue-50 dark:hover:bg-blue-950"
+                    }`}
+                  >
+                    {year}
+                  </button>
+                ))}
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  Fecha fin
-                </label>
-                <Input
-                  type="date"
-                  value={satFechaFin}
-                  onChange={(e) => setSatFechaFin(e.target.value)}
-                  className="w-[160px] h-8 text-sm"
-                />
+            </div>
+
+            {/* Mes */}
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Mes</p>
+              <div className="flex flex-wrap gap-1.5">
+                {MONTHS.map((mes, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSatMonth(idx)}
+                    className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      satMonth === idx
+                        ? "bg-blue-600 text-white"
+                        : "bg-white dark:bg-gray-800 border hover:bg-blue-50 dark:hover:bg-blue-950"
+                    }`}
+                  >
+                    {mes}
+                  </button>
+                ))}
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
               <Button
                 size="sm"
                 onClick={async () => {
-                  if (!satFechaInicio || !satFechaFin) {
-                    alert("Selecciona un rango de fechas.");
-                    return;
-                  }
+                  const fechaInicio = `${satYear}-${String(satMonth + 1).padStart(2, "0")}-01`;
+                  const lastDay = new Date(satYear, satMonth + 1, 0).getDate();
+                  const fechaFin = `${satYear}-${String(satMonth + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
                   setDescargandoCfdis(true);
                   try {
                     const res = await fetch("/api/sat/sync", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        empresaId,
-                        fechaInicio: satFechaInicio,
-                        fechaFin: satFechaFin,
-                        tipo: "recibidos",
-                      }),
+                      body: JSON.stringify({ empresaId, fechaInicio, fechaFin }),
                     });
                     const data = await res.json().catch(() => ({}));
                     if (res.ok) {
                       setUltimaSync(new Date().toLocaleString("es-MX"));
                       cargarDatos();
                       if (data.estado === "completado") {
-                        setCfdisResult(`SAT: ${data.totalDescargados} CFDIs descargados exitosamente${data.totalErrores > 0 ? `, ${data.totalErrores} errores` : ""}.`);
+                        setCfdisResult(`SAT: ${data.totalDescargados} CFDIs descargados (${data.detalle?.join(", ") || ""}).`);
                       } else if (data.estado === "en_proceso") {
-                        setCfdisResult(`SAT: Solicitud en proceso (${data.numeroCFDIs || 0} CFDIs encontrados). El SAT puede tardar minutos u horas. Intenta de nuevo más tarde.`);
+                        setCfdisResult(`SAT: Solicitud en proceso. Intenta de nuevo más tarde.`);
                       } else {
                         setCfdisResult(`SAT: ${data.mensaje || "Sincronización iniciada."}`);
                       }
                     } else {
-                      alert("Error: " + (data.error || "Verifica que la e.firma esté configurada."));
+                      alert("Error: " + (data.error || "Verifica que la e.firma esté configurada en Configuración."));
                     }
                   } catch {
-                    alert("Error de conexión con el servidor. Intenta de nuevo.");
+                    alert("Error de conexión con el servidor.");
                   }
                   setDescargandoCfdis(false);
                 }}
@@ -696,14 +662,12 @@ export default function EmpresaDashboardPage() {
                 ) : (
                   <FileText className="mr-2 h-3.5 w-3.5" />
                 )}
-                Descargar CFDIs del SAT
+                Descargar {MONTHS[satMonth]} {satYear}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={async () => {
-                  alert("Función de declaraciones en desarrollo. Próximamente disponible.");
-                }}
+                onClick={() => alert("Función de declaraciones en desarrollo.")}
                 disabled={descargandoDeclaraciones}
               >
                 <Download className="mr-2 h-3.5 w-3.5" />
@@ -711,101 +675,9 @@ export default function EmpresaDashboardPage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Requiere e.firma (.cer + .key) configurada. La descarga puede tardar varios minutos.
+              Requiere e.firma configurada en Configuración. Descarga emitidos y recibidos.
             </p>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Configurar e.firma */}
-      <Card className="border-amber-200 dark:border-amber-900">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <KeyRound className="h-4 w-4 text-amber-600" />
-            Configurar e.firma (FIEL)
-          </CardTitle>
-          <CardDescription>
-            {empresaData?.efirma_cer_url && empresaData?.efirma_key_url
-              ? "e.firma configurada. Puedes actualizarla si es necesario."
-              : "Sube tu .cer, .key y contraseña para habilitar la descarga automática del SAT."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Estado actual */}
-          {empresaData?.efirma_cer_url && (
-            <div className="rounded-lg bg-green-50 dark:bg-green-950 p-3">
-              <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
-                <ShieldCheck className="h-4 w-4" />
-                <span className="text-sm font-medium">e.firma activa</span>
-              </div>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                Certificado y llave privada configurados. Última sincronización: {empresaData?.sat_sincronizado_at ? new Date(empresaData.sat_sincronizado_at).toLocaleString("es-MX") : "Nunca"}
-              </p>
-            </div>
-          )}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label className="text-xs">Certificado (.cer)</Label>
-              <div
-                className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-3 cursor-pointer transition-colors ${
-                  fielCerFile ? "border-green-400 bg-green-50 dark:bg-green-950" : "hover:border-amber-400"
-                }`}
-                onClick={() => document.getElementById("fiel-cer")?.click()}
-              >
-                {fielCerFile ? (
-                  <>
-                    <CheckCircle2 className="h-5 w-5 text-green-600 mb-1" />
-                    <p className="text-xs text-green-700 dark:text-green-300 truncate max-w-full">{fielCerFile.name}</p>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-5 w-5 text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">{empresaData?.efirma_cer_url ? "Reemplazar .cer" : "Subir .cer"}</p>
-                  </>
-                )}
-                <input id="fiel-cer" type="file" accept=".cer" className="hidden" onChange={(e) => { if (e.target.files?.[0]) setFielCerFile(e.target.files[0]); }} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Llave privada (.key)</Label>
-              <div
-                className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-3 cursor-pointer transition-colors ${
-                  fielKeyFile ? "border-green-400 bg-green-50 dark:bg-green-950" : "hover:border-amber-400"
-                }`}
-                onClick={() => document.getElementById("fiel-key")?.click()}
-              >
-                {fielKeyFile ? (
-                  <>
-                    <CheckCircle2 className="h-5 w-5 text-green-600 mb-1" />
-                    <p className="text-xs text-green-700 dark:text-green-300 truncate max-w-full">{fielKeyFile.name}</p>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-5 w-5 text-muted-foreground mb-1" />
-                    <p className="text-xs text-muted-foreground">{empresaData?.efirma_key_url ? "Reemplazar .key" : "Subir .key"}</p>
-                  </>
-                )}
-                <input id="fiel-key" type="file" accept=".key" className="hidden" onChange={(e) => { if (e.target.files?.[0]) setFielKeyFile(e.target.files[0]); }} />
-              </div>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs">Contraseña de la e.firma</Label>
-            <Input type="password" placeholder="••••••••" value={fielPassword} onChange={(e) => setFielPassword(e.target.value)} className="h-8 text-sm" />
-          </div>
-          <Button size="sm" onClick={handleFielUpload} disabled={fielUploading} className="w-full">
-            {fielUploading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="mr-2 h-3.5 w-3.5" />}
-            {fielUploading ? "Subiendo..." : empresaData?.efirma_cer_url ? "Actualizar e.firma" : "Guardar e.firma"}
-          </Button>
-          {fielResult && (
-            <div className={`rounded-lg p-3 ${fielResult.startsWith("Error") ? "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" : "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"}`}>
-              <span className="text-sm">{fielResult}</span>
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Las credenciales se cifran con AES-256 antes de almacenarse.
-          </p>
         </CardContent>
       </Card>
 
